@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.9
+// @version      3.7.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.9</span>
+      <span>🐹 Hamster King Helper v3.7.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -240,6 +240,13 @@
       <b>🎁 Бесплатные подарки</b>
       <div id="giftStatus" class="small">Ожидание открытия магазина</div>
       <button id="giftRun" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">🎁 Собрать</button>
+    </div>
+
+    <div id="section-chest-scan" class="block">
+      <b>📦 Сканер сундуков</b>
+      <div id="chestScanStatus" class="small">Только диагностика: ничего не нажимает.</div>
+      <button id="chestScanRun" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">🔎 Сканировать</button>
+      <button id="chestScanCopy" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">📋 Отчёт</button>
     </div>
 
     <div id="status" class="block good">
@@ -1267,6 +1274,87 @@
     lastCouponAutoCheck = Date.now();
     loadCoupons();
   });
+
+  // ===== СКАНЕР СУНДУКОВ НА КАРТЕ (ТОЛЬКО ЧТЕНИЕ) =====
+  // Не нажимает на карту и не вызывает игровые методы сбора.
+  let chestScanReport = 'Сканирование ещё не запускалось.';
+  const chestScanStatus = message => { $('chestScanStatus').textContent = message; };
+  function scanMapChests() {
+    const map = getMap();
+    if (!map || typeof map.queryRenderedFeatures !== 'function') {
+      chestScanStatus('Карта MapLibre не найдена. Открой карту города.');
+      return;
+    }
+    try {
+      const canvas = map.getCanvas();
+      const width = canvas.clientWidth || canvas.width;
+      const height = canvas.clientHeight || canvas.height;
+      if (!width || !height) {
+        chestScanStatus('Карта пока не готова.');
+        return;
+      }
+      const layers = (map.getStyle()?.layers || [])
+        .filter(layer => layer.type === 'symbol')
+        .map(layer => layer.id);
+      // Считываем видимые символы. Никаких кликов или изменения состояния игры.
+      const features = map.queryRenderedFeatures(
+        [[0, 0], [width, height]], { layers }
+      );
+      const relevant = /chest|treasure|loot|reward|income|profit|collect|сундук|сокровищ|доход|награда|сбор/i;
+      const matched = features.filter(feature => {
+        const layer = feature.layer?.id || '';
+        const props = JSON.stringify(feature.properties || {});
+        return relevant.test(layer + ' ' + props);
+      });
+      const unique = new Map();
+      for (const feature of matched) {
+        const p = feature.properties || {};
+        const coordinates = feature.geometry?.coordinates;
+        const key = JSON.stringify([feature.layer?.id, feature.id, p, coordinates]);
+        if (!unique.has(key)) unique.set(key, {
+          layer: feature.layer?.id,
+          id: feature.id ?? null,
+          properties: p,
+          geometryType: feature.geometry?.type,
+          coordinates
+        });
+      }
+      const byLayer = {};
+      for (const feature of features) {
+        const id = feature.layer?.id || 'unknown';
+        byLayer[id] = (byLayer[id] || 0) + 1;
+      }
+      const report = {
+        time: new Date().toISOString(),
+        url: location.href,
+        mapElement: map.getContainer()?.id || '',
+        viewport: { width, height },
+        symbolLayers: layers,
+        renderedFeatures: features.length,
+        featureCountByLayer: byLayer,
+        potentialChestCount: unique.size,
+        candidates: Array.from(unique.values()).slice(0, 60)
+      };
+      chestScanReport = JSON.stringify(report, null, 2);
+      chestScanStatus('Символов: ' + features.length +
+        '; возможных сундуков: ' + unique.size +
+        '. Нажми «📋 Отчёт» и пришли результат.');
+    } catch (error) {
+      chestScanStatus('Ошибка сканирования: ' + error.message);
+      chestScanReport = 'Ошибка: ' + String(error);
+    }
+  }
+  $('chestScanRun').onclick = scanMapChests;
+  $('chestScanCopy').onclick = () => {
+    const text = chestScanReport;
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() =>
+        chestScanStatus('Отчёт скопирован. Пришли его в чат.')
+      ).catch(() => window.prompt('Скопируй отчёт:', text));
+    } else {
+      window.prompt('Скопируй отчёт:', text);
+    }
+  };
 
   // ===== БЕЗОПАСНЫЙ СБОР БЕСПЛАТНЫХ ПОДАРКОВ =====
   // Никаких API-вызовов, обхода таймеров или платных покупок.
