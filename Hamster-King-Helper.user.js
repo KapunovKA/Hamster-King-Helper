@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.7
+// @version      3.6.8
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.7</span>
+      <span>🐹 Hamster King Helper v3.6.8</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -239,7 +239,7 @@
     <div id="section-gifts" class="block">
       <b>🎁 Бесплатные подарки</b>
       <div id="giftStatus" class="small">Ожидание открытия магазина</div>
-      <button id="giftRun" class="btn">🎁 Собрать сейчас</button>
+      <button id="giftRun" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">🎁 Собрать</button>
     </div>
 
     <div id="status" class="block good">
@@ -1335,9 +1335,19 @@
   let giftManualUntil = 0;
   let giftOverlayLastClick = 0;
   function giftOfferVisible() {
-    return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
-      .some(el => el.children.length < 4 && giftVisible(el) &&
-        /сделка стратега/i.test(giftText(el)) && giftText(el).length < 90);
+    // Игра показывает несколько вариантов платного предложения:
+    // «Сделка Стратега», «Доля Капо» и т. п.
+    // Проверяем название известных предложений либо сочетание
+    // кнопки пропуска с ценой в красных кристаллах.
+    const texts = Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
+      .filter(el => el.children.length < 4 && giftVisible(el))
+      .map(el => giftText(el))
+      .filter(text => text.length < 90);
+    if (texts.some(text => /сделка стратега|доля капо/i.test(text))) return true;
+    const hasSkip = texts.some(text => /^(пропустить|продолжить)$/.test(text));
+    const hasGemPrice = texts.some(text => /^\\d{1,5}$/.test(text));
+    const hasOfferHeading = texts.some(text => /сделка|предложение|доля|бонус|выгода/i.test(text));
+    return hasSkip && hasGemPrice && hasOfferHeading;
   }
   function giftSafeAdvanceTarget() {
     const nodes = Array.from(document.querySelectorAll('button,[role="button"],div,span,a'));
