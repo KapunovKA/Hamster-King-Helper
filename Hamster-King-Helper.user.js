@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.1
+// @version      3.6.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.1</span>
+      <span>🐹 Hamster King Helper v3.6.2</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1310,32 +1310,61 @@
     }
     return null;
   }
-  // После бесплатной награды игра показывает 5-секундное предложение.
-  // Продолжаем только по доступной кнопке «Пропустить»/«Продолжить».
+  // Окно предложения после бесплатного подарка.
+  // Нажимаем только «Пропустить»/«Продолжить» после завершения таймера.
   let giftOverlayLastClick = 0;
+  let giftOverlayFirstSeen = 0;
   function giftOfferVisible() {
     return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
       .some(el => el.children.length < 4 && giftVisible(el) &&
         /сделка стратега/i.test(giftText(el)) && giftText(el).length < 90);
   }
-  function advanceGiftOffer() {
-    if (!giftOfferVisible() || Date.now() - giftOverlayLastClick < 4500) return false;
-    const candidates = Array.from(document.querySelectorAll('button,[role="button"]'))
-      .filter(el => giftVisible(el) && !el.disabled &&
-        el.getAttribute('aria-disabled') !== 'true' &&
-        /^(пропустить|продолжить)$/.test(giftText(el)));
-    const button = candidates.find(el => {
+  function giftSafeAdvanceTarget() {
+    const nodes = Array.from(document.querySelectorAll('button,[role="button"],div,span,a'));
+    return nodes.find(el => {
+      if (!giftVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+      if (!/^(пропустить|продолжить)$/.test(giftText(el))) return false;
+      if (Array.from(el.children).some(child => /^(пропустить|продолжить)$/.test(giftText(child)))) return false;
       const style = getComputedStyle(el);
       return style.opacity !== '0' && style.cursor !== 'not-allowed' &&
         !el.classList.contains('disabled') && !el.hasAttribute('disabled');
     });
-    if (!button) {
-      giftStatus('Ожидаю окончания таймера предложения…');
+  }
+  function giftDispatchClick(target) {
+    const rect = target.getBoundingClientRect();
+    const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || (!target.contains(hit) && !hit.contains(target))) return false;
+    const actual = hit.closest('button,[role="button"],a') || hit;
+    actual.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, clientX:x, clientY:y, pointerId:1, pointerType:'mouse', isPrimary:true}));
+    actual.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:0}));
+    actual.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, cancelable:true, clientX:x, clientY:y, pointerId:1, pointerType:'mouse', isPrimary:true}));
+    actual.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:0}));
+    actual.click();
+    return true;
+  }
+  function advanceGiftOffer() {
+    if (!giftOfferVisible()) {
+      giftOverlayFirstSeen = 0;
+      return false;
+    }
+    if (!giftOverlayFirstSeen) giftOverlayFirstSeen = Date.now();
+    if (Date.now() - giftOverlayFirstSeen < 5500) {
+      giftStatus('Жду 5 секунд до пропуска предложения…');
       return true;
     }
-    button.click();
-    giftOverlayLastClick = Date.now();
-    giftStatus('Закрываю предложение без покупки…');
+    if (Date.now() - giftOverlayLastClick < 4500) return true;
+    const target = giftSafeAdvanceTarget();
+    if (!target) {
+      giftStatus('Ожидаю доступную кнопку «Пропустить»…');
+      return true;
+    }
+    if (giftDispatchClick(target)) {
+      giftOverlayLastClick = Date.now();
+      giftStatus('Нажал «Пропустить» без покупки. Ожидаю следующий подарок…');
+    } else {
+      giftStatus('Кнопка пропуска перекрыта. Не нажимаю другие элементы.');
+    }
     return true;
   }
   async function collectGifts(manual = false) {
