@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.5.1
+// @version      3.6
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.5</span>
+      <span>🐹 Hamster King Helper v3.6</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -232,7 +232,14 @@
       <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
       <label class="setting-row"><input type="checkbox" data-setting="coupons"> Купоны Telegram</label>
       <label class="setting-row"><input type="checkbox" data-setting="puzzle"> Кнопка пазла</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автосбор бесплатных подарков</label>
       <div class="small">Настройки сохраняются автоматически.</div>
+    </div>
+
+    <div id="section-gifts" class="block">
+      <b>🎁 Бесплатные подарки</b>
+      <div id="giftStatus" class="small">Ожидание открытия магазина</div>
+      <button id="giftRun" class="btn">🎁 Собрать сейчас</button>
     </div>
 
     <div id="status" class="block good">
@@ -314,7 +321,8 @@
     manual: false,
     city: true,
     coupons: true,
-    puzzle: true
+    puzzle: true,
+    autoGifts: false
   };
 
   let uiSettings = { ...DEFAULT_SETTINGS };
@@ -1243,6 +1251,104 @@
   }
 
   $('couponRefresh').onclick = loadCoupons;
+
+  // ===== БЕЗОПАСНЫЙ СБОР БЕСПЛАТНЫХ ПОДАРКОВ =====
+  // Никаких API-вызовов, обхода таймеров или платных покупок.
+  // Работает только с видимыми кнопками на открытой странице магазина.
+  let giftBusy = false;
+  let giftLastAttempt = 0;
+  let giftClicks = 0;
+  let giftLastButton = null;
+  let giftLastButtonAt = 0;
+  const giftStatus = message => { $('giftStatus').textContent = message; };
+  const giftVisible = element => {
+    if (!element || !element.isConnected) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 3 && rect.height > 3 &&
+      rect.bottom > 0 && rect.top < innerHeight &&
+      style.display !== 'none' && style.visibility !== 'hidden' &&
+      style.pointerEvents !== 'none';
+  };
+  const giftText = element => (element?.innerText || element?.textContent || '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+  function giftSection(button) {
+    // Находим ближайший ограниченный блок карточки/подарка, не весь документ.
+    let node = button.parentElement;
+    for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
+      const text = giftText(node);
+      if (text.length > 1400) break;
+      if (/vip\s*30|купить|стоимость|цена|оплатить|пополнить|₽|\$|usdt/i.test(text)) return null;
+      if (/ежедневный подарок|получить\s*\(\s*\d+\s*\/\s*5\s*\)/i.test(text)) return 'daily';
+      // Для трёх карточек под заголовком «Подарки» — только явно бесплатные.
+      if (/подарки/i.test(text) && /получить/i.test(text) && text.length < 900) return 'gifts';
+    }
+    return null;
+  }
+  function giftShopOpen() {
+    // Наличие видимого заголовка магазина и ежедневного подарка.
+    return Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p'))
+      .some(el => el.children.length < 4 && giftVisible(el) &&
+        /ежедневный подарок/i.test(giftText(el)) && giftText(el).length < 90);
+  }
+  function giftCandidate() {
+    if (!giftShopOpen()) return null;
+    const buttons = Array.from(document.querySelectorAll('button,[role="button"]'));
+    for (const button of buttons) {
+      if (!giftVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
+      const label = giftText(button);
+      if (!/^получить(?:\s*\(\s*\d+\s*\/\s*5\s*\))?$/.test(label)) continue;
+      const kind = giftSection(button);
+      if (!kind) continue;
+      // Сначала ежедневная цепочка, затем остальные бесплатные награды.
+      if (kind === 'daily') return button;
+    }
+    for (const button of buttons) {
+      if (!giftVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
+      if (giftText(button) !== 'получить' || giftSection(button) !== 'gifts') continue;
+      return button;
+    }
+    return null;
+  }
+  async function collectGifts(manual = false) {
+    if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
+    if (!manual && !uiSettings.autoGifts) return;
+    if (!giftShopOpen()) {
+      if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
+      return;
+    }
+    if (giftClicks >= 30) {
+      giftStatus('Лимит 30 нажатий за сессию. Перезагрузи страницу для повтора.');
+      return;
+    }
+    const button = giftCandidate();
+    if (!button) {
+      giftStatus('Доступных кнопок бесплатных подарков не найдено.');
+      return;
+    }
+    // Если интерфейс не изменился, не кликаем по той же кнопке бесконечно.
+    if (button === giftLastButton && Date.now() - giftLastButtonAt < 60000) {
+      giftStatus('Ожидаю обновления награды (защита от повторов).');
+      return;
+    }
+    giftBusy = true;
+    giftLastAttempt = Date.now();
+    try {
+      giftLastButton = button;
+      giftLastButtonAt = Date.now();
+      button.click();
+      giftClicks++;
+      giftStatus('Попыток получения: ' + giftClicks + '. Проверяю следующую награду…');
+    } catch (error) {
+      giftStatus('Не удалось нажать: ' + error.message);
+    } finally {
+      giftBusy = false;
+    }
+  }
+  $('giftRun').onclick = () => collectGifts(true);
+  setInterval(() => {
+    if (uiSettings.autoGifts && document.visibilityState === 'visible') collectGifts();
+  }, 3500);
 
   // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
 
