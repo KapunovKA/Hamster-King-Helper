@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.2
+// @version      3.6.3
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.2</span>
+      <span>🐹 Hamster King Helper v3.6.3</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1251,6 +1251,22 @@
   }
 
   $('couponRefresh').onclick = loadCoupons;
+
+  // Автопроверка купонов каждые 30 минут, пока игра открыта.
+  // loadCoupons уже защищён от параллельных запросов.
+  const COUPON_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+  setInterval(() => {
+    if (document.visibilityState === 'visible') loadCoupons();
+  }, COUPON_CHECK_INTERVAL_MS);
+
+  // Если вкладка долго была в фоне, обновляем купоны при возвращении.
+  let lastCouponAutoCheck = Date.now();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - lastCouponAutoCheck < COUPON_CHECK_INTERVAL_MS) return;
+    lastCouponAutoCheck = Date.now();
+    loadCoupons();
+  });
 
   // ===== БЕЗОПАСНЫЙ СБОР БЕСПЛАТНЫХ ПОДАРКОВ =====
   // Никаких API-вызовов, обхода таймеров или платных покупок.
