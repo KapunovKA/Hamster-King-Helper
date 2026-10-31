@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.5
+// @version      3.5.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @connect      crypto-witch.ru
 // @connect      t.me
+// @updateURL    https://raw.githubusercontent.com/KapunovKA/Hamster-King-Helper/main/Hamster-King-Helper.user.js
+// @downloadURL  https://raw.githubusercontent.com/KapunovKA/Hamster-King-Helper/main/Hamster-King-Helper.user.js
 // ==/UserScript==
 
 (() => {
