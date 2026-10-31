@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.4
+// @version      3.5
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -160,6 +160,14 @@
     summary { cursor: pointer; }
     .hidden { display: none !important; }
 
+    .head-actions { display: flex; gap: 6px; }
+    .settings-btn { background: #434c60; border-radius: 6px; padding: 4px 9px; }
+    .settings-box { border: 1px solid #59667c; border-radius: 9px; padding: 10px; margin: 9px 0; background: #232a3b; }
+    .settings-title { font-weight: 700; margin-bottom: 7px; }
+    .setting-row { display: flex; gap: 9px; align-items: center; padding: 7px 0; cursor: pointer; }
+    .setting-row input { width: 17px; height: 17px; accent-color: #39d98a; flex: none; }
+
+
     .coupon {
       border: 1px solid #47526a;
       border-radius: 8px;
@@ -208,20 +216,33 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.4</span>
-      <button id="close" class="close">−</button>
+      <span>🐹 Hamster King Helper v3.5</span>
+      <div class="head-actions">
+        <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
+        <button id="close" class="close">−</button>
+      </div>
+    </div>
+
+    <div id="settingsBox" class="settings-box hidden">
+      <div class="settings-title">⚙️ Настройки интерфейса</div>
+      <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика</label>
+      <label class="setting-row"><input type="checkbox" data-setting="manual"> Ручной ввод слухов</label>
+      <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
+      <label class="setting-row"><input type="checkbox" data-setting="coupons"> Купоны Telegram</label>
+      <label class="setting-row"><input type="checkbox" data-setting="puzzle"> Кнопка пазла</label>
+      <div class="small">Настройки сохраняются автоматически.</div>
     </div>
 
     <div id="status" class="block good">
       Запуск...
     </div>
 
-    <details>
+    <details id="section-diagnostics">
       <summary>Диагностика</summary>
       <div id="diag" class="block small"></div>
     </details>
 
-    <label>
+    <label id="section-city" style="display:block">
       Город (резервный выбор)
       <select id="city">
         <option value="">Автоматически</option>
@@ -236,7 +257,7 @@
       🧩 Запустить пазл
     </button>
 
-    <details open>
+    <details id="section-coupons" open>
       <summary>🎟 Купоны из Telegram</summary>
       <div id="couponStatus" class="block small">
         Ожидание...
@@ -253,7 +274,7 @@
       </a>
     </details>
 
-    <details>
+    <details id="section-manual">
       <summary>Ручной ввод слухов</summary>
       <textarea id="manual" rows="3"
         placeholder="Москва: [16:06] [23:19] [24:07]"
@@ -276,13 +297,64 @@
 
   $('mini').onclick = () => {
     $('mini').classList.add('hidden');
-    $('panel').classList.remove('hidden');
-  };
+    $('panel').classList.remove('hidden');  };
 
   $('close').onclick = () => {
     $('panel').classList.add('hidden');
     $('mini').classList.remove('hidden');
   };
+
+  // ===== НАСТРОЙКИ ИНТЕРФЕЙСА =====
+
+  const SETTINGS_KEY = 'hk-helper-universal-settings-v3';
+  const DEFAULT_SETTINGS = {
+    diagnostics: false,
+    manual: false,
+    city: true,
+    coupons: true,
+    puzzle: true
+  };
+
+  let uiSettings = { ...DEFAULT_SETTINGS };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    for (const key of Object.keys(DEFAULT_SETTINGS)) {
+      if (typeof saved[key] === 'boolean') uiSettings[key] = saved[key];
+    }
+  } catch {}
+
+  const sections = {
+    diagnostics: $('section-diagnostics'),
+    manual: $('section-manual'),
+    city: $('section-city'),
+    coupons: $('section-coupons'),
+    puzzle: $('puzzle')
+  };
+
+  function applyUiSettings() {
+    for (const [key, element] of Object.entries(sections)) {
+      element.classList.toggle('hidden', !uiSettings[key]);
+    }
+    root.querySelectorAll('[data-setting]').forEach(input => {
+      input.checked = uiSettings[input.dataset.setting];
+    });
+  }
+
+  $('settingsToggle').onclick = () => {
+    const box = $('settingsBox');
+    box.classList.toggle('hidden');
+    $('settingsToggle').setAttribute('aria-expanded', String(!box.classList.contains('hidden')));
+  };
+
+  root.querySelectorAll('[data-setting]').forEach(input => {
+    input.addEventListener('change', () => {
+      uiSettings[input.dataset.setting] = input.checked;
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
+      applyUiSettings();
+    });
+  });
+
+  applyUiSettings();
 
   // ===== ОПРЕДЕЛЕНИЕ ГОРОДА =====
 
@@ -297,7 +369,8 @@
       const r = element.getBoundingClientRect();
       return (
         r.width > 0 &&
-        r.height > 0 &&        r.width < 600 &&
+        r.height > 0 &&
+        r.width < 600 &&
         r.height < 150 &&
         clean(element.textContent) === value
       );
@@ -523,7 +596,6 @@
     if (appliedMap) {
       removeLayers(appliedMap);
     }
-
     signature = '';
     appliedMap = null;
   }
@@ -596,7 +668,8 @@
         id: LAYER,
         type: 'fill',
         source: 'areas-data',
-        filter,        paint: {
+        filter,
+        paint: {
           'fill-color': RUMOR_COLOR,
           'fill-opacity': 0.72,
           'fill-outline-color': '#ffffff'
@@ -822,8 +895,7 @@
             timeout: 20000,
 
             onload(response) {
-              if (
-                response.status >= 200 &&
+              if (                response.status >= 200 &&
                 response.status < 300
               ) {
                 resolve(response.responseText);
@@ -895,7 +967,8 @@
     const value = $('city').value;
 
     if (value) {
-      setCity(value, 'вручную');    } else {
+      setCity(value, 'вручную');
+    } else {
       clearHighlight();
 
       city = null;
@@ -1121,8 +1194,7 @@
     }
   }
 
-  async function loadCoupons() {
-    if (loadingCoupons) return;
+  async function loadCoupons() {    if (loadingCoupons) return;
 
     loadingCoupons = true;
     couponState = 'Проверяю публикации Telegram...';
@@ -1194,7 +1266,8 @@
     const currentDay = new Date().toDateString();
 
     if (currentDay !== lastCouponDay) {
-      lastCouponDay = currentDay;      renderCoupons();
+      lastCouponDay = currentDay;
+      renderCoupons();
       loadCoupons();
     }
 
