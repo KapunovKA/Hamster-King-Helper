@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.9.2
+// @version      3.10.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.9.2</span>
+      <span>🐹 Hamster King Helper v3.10.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -258,6 +258,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="coupons"> Купоны Telegram</label>
       <label class="setting-row"><input type="checkbox" data-setting="puzzle"> Кнопка пазла</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автосбор бесплатных подарков</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автосбор сундуков (только видимая карта)</label>
       <div class="small">Настройки сохраняются автоматически.</div>
     </div>
 
@@ -270,6 +271,8 @@
       <div id="section-chest-scan" class="dash-card">
         <span class="dash-title">📦 Сундуки на карте</span>
         <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
+        <div id="chestAutoStatus" class="small">Автосбор выключен</div>
+        <button id="chestAutoToggle" class="btn purple" title="Включить или выключить безопасный автосбор дохода">▶ Автосбор: ВЫКЛ</button>
         <button id="chestScanRun" class="btn">🔎 Найти</button>
         <button id="chestScanCopy" class="btn">📋 Отчёт</button>
         <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
@@ -355,7 +358,8 @@
     city: true,
     coupons: true,
     puzzle: true,
-    autoGifts: false
+    autoGifts: false,
+    autoChests: false
   };
 
   let uiSettings = { ...DEFAULT_SETTINGS };
@@ -394,6 +398,10 @@
       uiSettings[input.dataset.setting] = input.checked;
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
       applyUiSettings();
+      if (input.dataset.setting === 'autoChests') {
+        updateChestAutoToggle();
+        if (uiSettings.autoChests) setTimeout(chestAutoTick, 100);
+      }
     });
   });
 
@@ -1440,7 +1448,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.9.2',time:new Date().toISOString(),url:location.href,step};
+      version:'3.10.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1619,6 +1627,7 @@
         mode:'chest-collect-test',stage:'before-click'
       });
       button.click();
+      chestRememberCollectAttempt();
       chestTestNote('Нажатие отправлено. Проверь, получен ли доход.',{
         mode:'chest-collect-test',stage:'clicked',clicked:true
       });
@@ -1629,6 +1638,245 @@
       });
     }
   };
+
+
+  // ===== АВТОСБОР ДОХОДА НА КАРТЕ =====
+  // Выключен по умолчанию. Только подтверждённые 5 income-маркеров
+  // и единственная кнопка "Собрать" в модальном окне дохода.
+  // Ни платные предложения, ни другие кнопки здесь не нажимаются.
+  const CHEST_AUTO_COOLDOWN_MS = 30 * 60 * 1000;
+  const CHEST_AUTO_LAST_ATTEMPT_KEY = 'hk-helper-income-auto-last-attempt-v1';
+  const CHEST_AUTO_MARKER_IDS = [
+    'city_name_ftue_europe_building_1',
+    'city_name_ftue_europe_building_2',
+    'city_name_ftue_europe_building_resources_1',
+    'city_name_ftue_europe_building_resources_2',
+    'city_name_ftue_europe_building_resources_3'
+  ];
+  let chestAutoPhase = 'idle';
+  let chestAutoPhaseStarted = 0;
+  let chestAutoLastProbe = 0;
+  let chestAutoRetryAfter = 0;
+  let chestAutoLastMessage = '';
+
+  function updateChestAutoToggle() {
+    $('chestAutoToggle').textContent =
+      uiSettings.autoChests ? '⏸ Автосбор: ВКЛ' : '▶ Автосбор: ВЫКЛ';
+    if (!uiSettings.autoChests) {
+      chestAutoPhase = 'idle';
+      $('chestAutoStatus').textContent = 'Автосбор выключен';
+    } else if (chestAutoLastMessage) {
+      $('chestAutoStatus').textContent = chestAutoLastMessage;
+    } else {
+      $('chestAutoStatus').textContent = 'Ожидаю доход на карте…';
+    }
+  }
+
+  function chestAutoNote(step, extra = {}) {
+    if (step === chestAutoLastMessage && !Object.keys(extra).length) return;
+    chestAutoLastMessage = step;
+    $('chestAutoStatus').textContent = step;
+    chestScanStatus(step);
+    chestScanReport = JSON.stringify({
+      mode: 'chest-auto-collect',
+      version: '3.10.0',
+      time: new Date().toISOString(),
+      url: location.href,
+      step,
+      phase: chestAutoPhase,
+      ...extra
+    }, null, 2);
+  }
+
+  function chestAutoCooldownUntil() {
+    let last = 0;
+    try {
+      last = Number(localStorage.getItem(CHEST_AUTO_LAST_ATTEMPT_KEY)) || 0;
+    } catch {}
+    return last > 0 && last <= Date.now() ? last + CHEST_AUTO_COOLDOWN_MS : 0;
+  }
+
+  function chestRememberCollectAttempt() {
+    try {
+      localStorage.setItem(CHEST_AUTO_LAST_ATTEMPT_KEY, String(Date.now()));
+    } catch {}
+  }
+
+  function chestIncomeModalVisible() {
+    return [...document.querySelectorAll('[class*="buildings-income-modal"]')]
+      .some(element => {
+        if (!chestElementVisible(element)) return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 80 && rect.height >= 50 &&
+          /время получения дохода/i.test(chestClean(element.innerText || ''));
+      });
+  }
+
+  function chestAutoCollectButton() {
+    const candidates = [...document.querySelectorAll(
+      'button.buildings-income-modal__button'
+    )].filter(chestElementVisible).filter(button =>
+      !button.disabled &&
+      button.getAttribute('aria-disabled') !== 'true' &&
+      /^собрать$/i.test(chestClean(
+        button.innerText || button.textContent || button.value
+      ))
+    ).filter(button => {
+      let parent = button.parentElement;
+      for (let depth = 0; parent && depth < 9; depth++, parent = parent.parentElement) {
+        const rect = parent.getBoundingClientRect();
+        if (rect.width >= 80 && rect.height >= 50 &&
+            rect.width < innerWidth * 0.95 && rect.height < innerHeight * 0.95 &&
+            chestElementVisible(parent) &&
+            /время получения дохода/i.test(chestClean(parent.innerText || ''))) {
+          return true;
+        }
+      }
+      return false;
+    });
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+
+  function chestAutoIncomeMarker() {
+    const map = getMap();
+    if (!map || !map.project || !map.getCanvas || !map.getLayer ||
+        !map.queryRenderedFeatures || typeof map.fire !== 'function' ||
+        !map.getLayer('markers-layer')) return null;
+
+    const canvas = map.getCanvas();
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    if (!width || !height) return null;
+    const matches = map.queryRenderedFeatures([[0,0],[width,height]],{
+      layers:['markers-layer']
+    }).filter(feature =>
+      feature.geometry?.type === 'Point' &&
+      feature.properties?.hasIncome === true &&
+      CHEST_AUTO_MARKER_IDS.includes(feature.properties?.buildingId)
+    );
+    const unique = new Map(matches.map(feature =>
+      [feature.properties.buildingId, feature]
+    ));
+    // Все пять маркеров должны одновременно показывать активный доход.
+    if (!CHEST_AUTO_MARKER_IDS.every(id => unique.has(id))) return null;
+
+    const feature = unique.get('city_name_ftue_europe_building_1');
+    const point = map.project(feature.geometry.coordinates);
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
+        point.x < 15 || point.y < 15 ||
+        point.x > width - 15 || point.y > height - 15) return null;
+
+    const x = Math.round(point.x), y = Math.round(point.y);
+    const hits = map.queryRenderedFeatures([[x-5,y-5],[x+5,y+5]],{
+      layers:['markers-layer']
+    });
+    if (!hits.some(hit =>
+      hit.properties?.buildingId === feature.properties.buildingId
+    )) return null;
+    return {map,canvas,point,id:feature.properties.buildingId};
+  }
+
+  function chestAutoTick() {
+    if (!uiSettings.autoChests) return;
+    if (document.visibilityState !== 'visible') return;
+
+    const now = Date.now();
+    const remaining = chestAutoCooldownUntil() - now;
+    if (remaining > 0) {
+      chestAutoPhase = 'idle';
+      const minutes = Math.ceil(remaining / 60000);
+      chestAutoNote('Защита от повторов: ещё ' + minutes + ' мин.');
+      return;
+    }
+
+    if (chestAutoPhase === 'opening') {
+      // Собираем только окно, открытое непосредственно этим автосбором.
+      const button = chestAutoCollectButton();
+      if (button && chestIncomeModalVisible()) {
+        chestAutoPhase = 'collecting';
+        // Сохраняем блокировку ДО клика, чтобы повтор не случился
+        // даже при перезагрузке или медленном ответе сервера.
+        chestRememberCollectAttempt();
+        try {
+          button.click();
+          chestAutoNote('Команда «Собрать» отправлена. Проверяю карту.',{
+            stage:'clicked',clicked:true
+          });
+        } catch (error) {
+          chestAutoNote('Ошибка нажатия «Собрать»: ' + error.message,{
+            stage:'collect-error',errorName:error.name
+          });
+        } finally {
+          chestAutoPhase = 'idle';
+        }
+        return;
+      }
+      if (now - chestAutoPhaseStarted < 8000) return;
+      chestAutoPhase = 'idle';
+      chestAutoRetryAfter = now + 120000;
+      chestAutoNote('Окно дохода не появилось. Повторная проверка через 2 мин.',{
+        stage:'modal-timeout'
+      });
+      return;
+    }
+
+    if (chestAutoPhase !== 'idle' || now < chestAutoRetryAfter) return;
+    if (now - chestAutoLastProbe < 15000) return;
+    chestAutoLastProbe = now;
+
+    // Не вмешиваемся в уже открытое пользователем окно дохода.
+    if (chestIncomeModalVisible()) {
+      chestAutoNote('Уже открыто окно дохода. Закрой его для автосбора.');
+      return;
+    }
+
+    try {
+      const target = chestAutoIncomeMarker();
+      if (!target) {
+        chestAutoNote('Ожидаю пять доступных маркеров дохода на карте…');
+        return;
+      }
+      const {map,canvas,point,id} = target;
+      const rect = canvas.getBoundingClientRect();
+      const clientX = rect.left + point.x, clientY = rect.top + point.y;
+      let originalEvent;
+      try {
+        originalEvent = new MouseEvent('click',{
+          bubbles:true,cancelable:true,clientX,clientY
+        });
+      } catch {
+        originalEvent = document.createEvent('Event');
+        originalEvent.initEvent('click',true,true);
+      }
+      chestAutoPhase = 'opening';
+      chestAutoPhaseStarted = now;
+      chestAutoNote('Открываю доступный доход…',{stage:'opening',buildingId:id});
+      map.fire('click',{
+        point,lngLat:map.unproject(point),originalEvent
+      });
+      setTimeout(chestAutoTick,600);
+    } catch (error) {
+      chestAutoPhase = 'idle';
+      chestAutoRetryAfter = now + 120000;
+      chestAutoNote('Ошибка автосбора: ' + error.message,{
+        stage:'open-error',errorName:error.name
+      });
+    }
+  }
+
+  $('chestAutoToggle').onclick = () => {
+    uiSettings.autoChests = !uiSettings.autoChests;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
+    applyUiSettings();
+    updateChestAutoToggle();
+    if (uiSettings.autoChests) setTimeout(chestAutoTick,100);
+  };
+  updateChestAutoToggle();
+  setInterval(chestAutoTick,2000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && uiSettings.autoChests) {
+      setTimeout(chestAutoTick,200);
+    }
+  });
 
   $('chestScanRun').onclick = scanMapChests;
   $('chestScanCopy').onclick = () => {
