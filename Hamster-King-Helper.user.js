@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.9.1
+// @version      3.9.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.9.1</span>
+      <span>🐹 Hamster King Helper v3.9.2</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1440,7 +1440,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.9.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.9.2',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1535,7 +1535,7 @@
       chestTestNote('Событие MapLibre отправлено',{eventTrusted:originalEvent.isTrusted});
       setTimeout(()=>{
         const pageText = document.body?.innerText || '';
-        const opened = /Время получения дохода\s*30\s*мин/i.test(pageText);
+        const opened = /Время получения дохода/i.test(pageText);
         chestTestNote(opened
           ? '✓ Окно дохода открылось! Сбор не выполнялся.'
           : 'Окно дохода не подтверждено.',{opened,visibility:document.visibilityState});
@@ -1573,9 +1573,10 @@
       });
       return;
     }
+    chestTestLog = {};
     try {
       const candidates = [...document.querySelectorAll(
-        'button,[role="button"],input[type="button"],[class*="button"],[class*="Button"]'
+        'button.buildings-income-modal__button'
       )].filter(chestElementVisible).filter(el =>
         /^собрать$/i.test(chestClean(el.innerText || el.value || el.textContent)) &&
         !el.disabled && el.getAttribute('aria-disabled') !== 'true'
