@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.7.0
+// @version      3.8.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -212,13 +212,38 @@
       margin-top: 7px;
       text-decoration: none;
     }
+
+    /* v3.8 compact dashboard */
+    .panel { width:min(370px,calc(100vw - 16px)); max-height:78dvh; padding:12px; border-radius:18px; background:#171d2b; border-color:#52617c; box-shadow:0 12px 35px #000b; }
+    .head { margin-bottom:12px; font-size:13px; gap:7px; }
+    .head span { flex:1; }
+    .head-actions button { min-width:30px; min-height:29px; }
+    .dashboard-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .dash-card { min-width:0; margin:0; border:1px solid #38465f; border-radius:12px; padding:10px; background:#252e40; }
+    .dash-title { display:block; font-size:12px; font-weight:700; margin-bottom:5px; }
+    .dash-card .small { font-size:10px; line-height:1.4; min-height:28px; max-height:56px; overflow:auto; }
+    .dash-card .btn { margin-top:7px; padding:6px 9px; width:auto; display:inline-block; font-size:11px; }
+    .dash-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+    .dash-actions .btn { margin:0; font-size:12px; padding:10px 5px; }
+    .dash-status { margin:10px 0 0; padding:9px 11px; border:1px solid #38465f; border-radius:11px; background:#202a3b; font-size:11px; }
+    .dash-details { margin-top:9px; border:1px solid #38465f; border-radius:10px; background:#202a3b; padding:8px 10px; }
+    .dash-details summary { font-size:12px; font-weight:600; }
+    .dash-details .block { margin:6px 0; }
+    .dash-details .btn { font-size:11px; padding:7px; }
+    .dash-city { margin-top:10px; font-size:11px; color:#cbd5e6; }
+    .dash-city select { padding:6px; margin-top:3px; font-size:12px; }
+    .settings-box { max-height:45vh; overflow:auto; }
+    .settings-box .setting-row { font-size:12px; padding:5px 0; }
+    .dash-secondary { margin-top:8px; }
+    .dash-secondary .dash-details { margin-top:6px; }
+    @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
   </style>
 
   <button id="mini" class="mini">🐹</button>
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.7.0</span>
+      <span>🐹 Hamster King Helper v3.8.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -236,73 +261,71 @@
       <div class="small">Настройки сохраняются автоматически.</div>
     </div>
 
-    <div id="section-gifts" class="block">
-      <b>🎁 Бесплатные подарки</b>
-      <div id="giftStatus" class="small">Ожидание открытия магазина</div>
-      <button id="giftRun" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">🎁 Собрать</button>
-    </div>
-
-    <div id="section-chest-scan" class="block">
-      <b>📦 Сканер сундуков</b>
-      <div id="chestScanStatus" class="small">Только диагностика: ничего не нажимает.</div>
-      <button id="chestScanRun" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">🔎 Сканировать</button>
-      <button id="chestScanCopy" class="btn" style="display:inline-block;width:auto;padding:6px 11px;font-size:12px;margin-top:7px">📋 Отчёт</button>
-    </div>
-
-    <div id="status" class="block good">
-      Запуск...
-    </div>
-
-    <details id="section-diagnostics">
-      <summary>Диагностика</summary>
-      <div id="diag" class="block small"></div>
-    </details>
-
-    <label id="section-city" style="display:block">
-      Город (резервный выбор)
-      <select id="city">
-        <option value="">Автоматически</option>
-      </select>
-    </label>
-
-    <button id="refresh" class="btn">
-      ↻ Обновить слухи
-    </button>
-
-    <button id="puzzle" class="btn purple">
-      🧩 Запустить пазл
-    </button>
-
-    <details id="section-coupons" open>
-      <summary>🎟 Купоны из Telegram</summary>
-      <div id="couponStatus" class="block small">
-        Ожидание...
+    <div class="dashboard-grid">
+      <div id="section-gifts" class="dash-card">
+        <span class="dash-title">🎁 Подарки</span>
+        <div id="giftStatus" class="small">Ожидание магазина</div>
+        <button id="giftRun" class="btn">🎁 Собрать</button>
       </div>
-      <div id="coupons"></div>
-      <button id="couponRefresh" class="btn">
-        ↻ Проверить купоны
-      </button>
-      <a class="link"
-         href="https://t.me/official_crypto_witch"
-         target="_blank"
-         rel="noopener noreferrer">
-        Открыть @official_crypto_witch
-      </a>
-    </details>
-
-    <details id="section-manual">
-      <summary>Ручной ввод слухов</summary>
-      <textarea id="manual" rows="3"
-        placeholder="Москва: [16:06] [23:19] [24:07]"
-      ></textarea>
-      <button id="apply" class="btn">
-        Применить
-      </button>
-    </details>
+      <div id="section-chest-scan" class="dash-card">
+        <span class="dash-title">📦 Сундуки на карте</span>
+        <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
+        <button id="chestScanRun" class="btn">🔎 Найти</button>
+        <button id="chestScanCopy" class="btn">📋 Отчёт</button>
+      </div>
+      <div class="dash-card">
+        <span class="dash-title">🗺️ Слухи</span>
+        <div class="small">Подсветка на карте</div>
+        <button id="refresh" class="btn">↻ Обновить</button>
+      </div>
+      <div class="dash-card">
+        <span class="dash-title">🎟️ Купоны Telegram</span>
+        <div id="couponSummary" class="small">Автопроверка каждые 30 минут</div>
+        <button id="couponOpen" class="btn">Открыть список</button>
+      </div>
+    </div>
+    <div id="status" class="dash-status good">Запуск...</div>
+    <label id="section-city" class="dash-city" style="display:block">
+      🏙️ Город (резервный выбор)
+      <select id="city"><option value="">Автоматически</option></select>
+    </label>
+    <div class="dash-actions">
+      <button id="puzzle" class="btn purple">🧩 Запустить пазл</button>
+      <button id="couponRefresh" class="btn">↻ Проверить купоны</button>
+    </div>
+    <div class="dash-secondary">
+      <details id="section-coupons" class="dash-details">
+        <summary>🎟️ Найденные купоны</summary>
+        <div id="couponStatus" class="block small">Ожидание...</div>
+        <div id="coupons"></div>
+        <a class="link" href="https://t.me/official_crypto_witch" target="_blank" rel="noopener noreferrer">Открыть @official_crypto_witch</a>
+      </details>
+      <details id="section-diagnostics" class="dash-details">
+        <summary>🛠️ Диагностика</summary>
+        <div id="diag" class="block small"></div>
+      </details>
+      <details id="section-manual" class="dash-details">
+        <summary>✏️ Ручной ввод слухов</summary>
+        <textarea id="manual" rows="3" placeholder="Москва: [16:06] [23:19] [24:07]"></textarea>
+        <button id="apply" class="btn">Применить</button>
+      </details>
+    </div>
   </div>
   `;
 
   const $ = id => root.getElementById(id);
+  $('couponOpen').onclick = () => {
+    const details = $('section-coupons');
+    details.classList.remove('hidden');
+    details.open = !details.open;
+    if (details.open) details.scrollIntoView({block:'nearest',behavior:'smooth'});
+  };
+  const couponSummaryObserver = new MutationObserver(() => {
+    const value = $('couponStatus').textContent.trim().replace(/\\s+/g,' ');
+    $('couponSummary').textContent = value.slice(0,75) || 'Автопроверка каждые 30 минут';
+  });
+  couponSummaryObserver.observe($('couponStatus'), {childList:true,characterData:true,subtree:true});
+
 
   for (const name of CITIES) {
     const option = document.createElement('option');
