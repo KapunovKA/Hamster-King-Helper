@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.4
+// @version      3.6.5
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.4</span>
+      <span>🐹 Hamster King Helper v3.6.5</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1384,10 +1384,40 @@
     }
     return true;
   }
+  // Подтверждение успешно полученного ежедневного подарка.
+  // Не закрываем посторонние диалоги и не нажимаем платные предложения.
+  let giftConfirmLastClick = 0;
+  function confirmReceivedGift() {
+    const heading = Array.from(document.querySelectorAll('div,span,h1,h2,h3,h4'))
+      .find(el => el.children.length < 4 && giftVisible(el) &&
+        /ежедневный подарок/i.test(giftText(el)) && giftText(el).length < 80);
+    const received = Array.from(document.querySelectorAll('div,span,p'))
+      .find(el => el.children.length < 4 && giftVisible(el) &&
+        /поздравляем,? получено/i.test(giftText(el)) && giftText(el).length < 100);
+    if (!heading || !received) return false;
+    if (Date.now() - giftConfirmLastClick < 2500) return true;
+    const target = Array.from(document.querySelectorAll('button,[role="button"],div,span'))
+      .find(el => giftVisible(el) && giftText(el) === 'понятно' &&
+        !Array.from(el.children).some(child => giftText(child) === 'понятно') &&
+        !el.disabled && el.getAttribute('aria-disabled') !== 'true');
+    if (!target) {
+      giftStatus('Награда получена. Ожидаю кнопку «Понятно»…');
+      return true;
+    }
+    if (giftDispatchClick(target)) {
+      giftConfirmLastClick = Date.now();
+      giftStatus('Награда подтверждена. Проверяю следующий подарок…');
+    } else {
+      giftStatus('Кнопка «Понятно» перекрыта. Не нажимаю другие элементы.');
+    }
+    return true;
+  }
+
   async function collectGifts(manual = false) {
     if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
     if (manual) giftManualUntil = Date.now() + 90000;
     if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil) return;
+    if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
     if (!giftShopOpen()) {
       if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
