@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.3
+// @version      3.6.4
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.3</span>
+      <span>🐹 Hamster King Helper v3.6.4</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1328,6 +1328,7 @@
   }
   // Окно предложения после бесплатного подарка.
   // Нажимаем только «Пропустить»/«Продолжить» после завершения таймера.
+  let giftManualUntil = 0;
   let giftOverlayLastClick = 0;
   let giftOverlayFirstSeen = 0;
   function giftOfferVisible() {
@@ -1385,7 +1386,8 @@
   }
   async function collectGifts(manual = false) {
     if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
-    if (!manual && !uiSettings.autoGifts) return;
+    if (manual) giftManualUntil = Date.now() + 90000;
+    if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil) return;
     if (advanceGiftOffer()) return;
     if (!giftShopOpen()) {
       if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
@@ -1398,6 +1400,7 @@
     const button = giftCandidate();
     if (!button) {
       giftStatus('Доступных кнопок бесплатных подарков не найдено.');
+      giftManualUntil = 0;
       return;
     }
     // Если интерфейс не изменился, не кликаем по той же кнопке бесконечно.
@@ -1421,8 +1424,8 @@
   }
   $('giftRun').onclick = () => collectGifts(true);
   setInterval(() => {
-    if (uiSettings.autoGifts && document.visibilityState === 'visible') collectGifts();
-  }, 3500);
+    if (document.visibilityState === 'visible' && (uiSettings.autoGifts || Date.now() < giftManualUntil)) collectGifts();
+  }, 1200);
 
   // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
 
