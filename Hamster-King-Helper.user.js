@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.4
+// @version      3.8.5
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.4</span>
+      <span>🐹 Hamster King Helper v3.8.5</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1439,9 +1439,9 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
-      version:'3.8.4',time:new Date().toISOString(),url:location.href,step};
+      version:'3.8.5',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
-    chestTestNote(step + ' — отчёт доступен по кнопке 📋.');
+    chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
   $('chestOpenTest').onclick = () => {
     if (chestTestBusy) return;
