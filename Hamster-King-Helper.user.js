@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.7
+// @version      3.8.8
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.7</span>
+      <span>🐹 Hamster King Helper v3.8.8</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1439,7 +1439,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
-      version:'3.8.7',time:new Date().toISOString(),url:location.href,step};
+      version:'3.8.8',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1493,9 +1493,12 @@
         chestTestNote('Маркер вне безопасной области карты.');
         return;
       }
-      const top = map.queryRenderedFeatures([point.x,point.y],{
+      chestTestNote('Проверка видимости маркера',{stage:'hit-test'});
+      const hitX = Math.round(point.x), hitY = Math.round(point.y);
+      const top = map.queryRenderedFeatures([[hitX-5,hitY-5],[hitX+5,hitY+5]],{
         layers:['markers-layer']
       });
+      chestTestLog.hitIds = [...new Set(top.map(f=>f.properties?.buildingId).filter(Boolean))];
       if (!top.some(f=>f.properties?.buildingId === feature.properties.buildingId)) {
         chestTestNote('Маркер перекрыт или не найден в точке клика.');
         return;
@@ -1505,12 +1508,14 @@
       chestTestNote('Проверяю открытие '+id+'…');
       $('panel').classList.add('hidden');
       $('mini').classList.remove('hidden');
+      chestTestNote('Подготовка события',{stage:'event-construction'});
       const originalEvent = new MouseEvent('click',{
         bubbles:true,cancelable:true,view:window,
         clientX:canvas.getBoundingClientRect().left+point.x,
         clientY:canvas.getBoundingClientRect().top+point.y
       });
       // MapLibre сам направляет click в обработчики слоёв.
+      chestTestNote('Отправка события карте',{stage:'map-fire'});
       map.fire('click',{point,lngLat:map.unproject(point),originalEvent});
       chestTestNote('Событие MapLibre отправлено',{eventTrusted:originalEvent.isTrusted});
       setTimeout(()=>{
@@ -1523,7 +1528,9 @@
       },1000);
     } catch(error) {
       chestTestBusy = false;
-      chestTestNote('Ошибка теста: '+error.message);
+      chestTestNote('Ошибка теста: '+error.message,{
+        errorName:error.name, errorStack:String(error.stack || '').slice(0,1400)
+      });
     }
   };
 
