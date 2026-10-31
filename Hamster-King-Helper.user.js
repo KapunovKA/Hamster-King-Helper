@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.8
+// @version      3.6.9
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.8</span>
+      <span>🐹 Hamster King Helper v3.6.9</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1333,21 +1333,19 @@
   // Окно предложения после бесплатного подарка.
   // Нажимаем только доступную кнопку «Пропустить»/«Продолжить» без дополнительного ожидания таймера.
   let giftManualUntil = 0;
+  let giftFlowActive = false;
   let giftOverlayLastClick = 0;
   function giftOfferVisible() {
-    // Игра показывает несколько вариантов платного предложения:
-    // «Сделка Стратега», «Доля Капо» и т. п.
-    // Проверяем название известных предложений либо сочетание
-    // кнопки пропуска с ценой в красных кристаллах.
-    const texts = Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
-      .filter(el => el.children.length < 4 && giftVisible(el))
-      .map(el => giftText(el))
-      .filter(text => text.length < 90);
-    if (texts.some(text => /сделка стратега|доля капо/i.test(text))) return true;
-    const hasSkip = texts.some(text => /^(пропустить|продолжить)$/.test(text));
-    const hasGemPrice = texts.some(text => /^\\d{1,5}$/.test(text));
-    const hasOfferHeading = texts.some(text => /сделка|предложение|доля|бонус|выгода/i.test(text));
-    return hasSkip && hasGemPrice && hasOfferHeading;
+    // После нажатия «Получить» отслеживаем любой вариант платного
+    // предложения, а не только известные названия.
+    const skip = giftSafeAdvanceTarget();
+    if (!skip) return false;
+    if (giftFlowActive) return true;
+    // Для восстановления после перезагрузки распознаём известные окна.
+    return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
+      .some(el => el.children.length < 4 && giftVisible(el) &&
+        /сделка стратега|доля капо|выбор босса/i.test(giftText(el)) &&
+        giftText(el).length < 90);
   }
   function giftSafeAdvanceTarget() {
     const nodes = Array.from(document.querySelectorAll('button,[role="button"],div,span,a'));
@@ -1415,6 +1413,7 @@
     if (giftDispatchClick(target)) {
       giftMarkAction();
       giftConfirmLastClick = Date.now();
+      giftFlowActive = false;
       giftStatus('Награда подтверждена. Проверяю следующий подарок…');
     } else {
       giftStatus('Кнопка «Понятно» перекрыта. Не нажимаю другие элементы.');
@@ -1425,7 +1424,7 @@
   async function collectGifts(manual = false) {
     if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
     if (manual) giftManualUntil = Date.now() + 90000;
-    if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil) return;
+    if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil && !giftFlowActive) return;
     if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
     if (!giftCanAct()) return;
@@ -1440,7 +1439,7 @@
     const button = giftCandidate();
     if (!button) {
       giftStatus('Доступных кнопок бесплатных подарков не найдено.');
-      giftManualUntil = 0;
+      if (!giftFlowActive) giftManualUntil = 0;
       return;
     }
     // Если интерфейс не изменился, не кликаем по той же кнопке бесконечно.
@@ -1453,6 +1452,7 @@
     try {
       giftLastButton = button;
       giftLastButtonAt = Date.now();
+      giftFlowActive = true;
       button.click();
       giftMarkAction();
       giftClicks++;
