@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.5
+// @version      3.6.6
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.5</span>
+      <span>🐹 Hamster King Helper v3.6.6</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1273,6 +1273,10 @@
   // Работает только с видимыми кнопками на открытой странице магазина.
   let giftBusy = false;
   let giftLastAttempt = 0;
+  const GIFT_CLICK_DELAY_MS = 3000;
+  let giftLastActionAt = 0;
+  const giftCanAct = () => Date.now() - giftLastActionAt >= GIFT_CLICK_DELAY_MS;
+  const giftMarkAction = () => { giftLastActionAt = Date.now(); };
   let giftClicks = 0;
   let giftLastButton = null;
   let giftLastButtonAt = 0;
@@ -1370,13 +1374,14 @@
       giftStatus('Жду 5 секунд до пропуска предложения…');
       return true;
     }
-    if (Date.now() - giftOverlayLastClick < 4500) return true;
+    if (Date.now() - giftOverlayLastClick < 4500 || !giftCanAct()) return true;
     const target = giftSafeAdvanceTarget();
     if (!target) {
       giftStatus('Ожидаю доступную кнопку «Пропустить»…');
       return true;
     }
     if (giftDispatchClick(target)) {
+      giftMarkAction();
       giftOverlayLastClick = Date.now();
       giftStatus('Нажал «Пропустить» без покупки. Ожидаю следующий подарок…');
     } else {
@@ -1395,7 +1400,7 @@
       .find(el => el.children.length < 4 && giftVisible(el) &&
         /поздравляем,? получено/i.test(giftText(el)) && giftText(el).length < 100);
     if (!heading || !received) return false;
-    if (Date.now() - giftConfirmLastClick < 2500) return true;
+    if (Date.now() - giftConfirmLastClick < 3000 || !giftCanAct()) return true;
     const target = Array.from(document.querySelectorAll('button,[role="button"],div,span'))
       .find(el => giftVisible(el) && giftText(el) === 'понятно' &&
         !Array.from(el.children).some(child => giftText(child) === 'понятно') &&
@@ -1405,6 +1410,7 @@
       return true;
     }
     if (giftDispatchClick(target)) {
+      giftMarkAction();
       giftConfirmLastClick = Date.now();
       giftStatus('Награда подтверждена. Проверяю следующий подарок…');
     } else {
@@ -1419,6 +1425,7 @@
     if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil) return;
     if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
+    if (!giftCanAct()) return;
     if (!giftShopOpen()) {
       if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
       return;
@@ -1444,6 +1451,7 @@
       giftLastButton = button;
       giftLastButtonAt = Date.now();
       button.click();
+      giftMarkAction();
       giftClicks++;
       giftStatus('Попыток получения: ' + giftClicks + '. Проверяю следующую награду…');
     } catch (error) {
