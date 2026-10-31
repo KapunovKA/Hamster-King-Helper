@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.8
+// @version      3.8.9
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.8</span>
+      <span>🐹 Hamster King Helper v3.8.9</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1439,7 +1439,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
-      version:'3.8.8',time:new Date().toISOString(),url:location.href,step};
+      version:'3.8.9',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1509,10 +1509,24 @@
       $('panel').classList.add('hidden');
       $('mini').classList.remove('hidden');
       chestTestNote('Подготовка события',{stage:'event-construction'});
-      const originalEvent = new MouseEvent('click',{
-        bubbles:true,cancelable:true,view:window,
-        clientX:canvas.getBoundingClientRect().left+point.x,
-        clientY:canvas.getBoundingClientRect().top+point.y
+      // Safari в контексте Userscripts/Tampermonkey может отвергать
+      // view:window при конструировании MouseEvent (TypeError).
+      // В MapLibre координаты передаются отдельно через point/lngLat.
+      const rect = canvas.getBoundingClientRect();
+      const clientX = rect.left + point.x, clientY = rect.top + point.y;
+      let originalEvent, eventConstruction = 'MouseEvent';
+      try {
+        originalEvent = new MouseEvent('click',{
+          bubbles:true,cancelable:true,clientX,clientY
+        });
+      } catch (eventError) {
+        eventConstruction = 'document.createEvent';
+        originalEvent = document.createEvent('Event');
+        originalEvent.initEvent('click',true,true);
+        chestTestLog.mouseEventError = String(eventError.message || eventError);
+      }
+      chestTestNote('Событие создано',{
+        stage:'event-created',eventConstruction,clientX,clientY
       });
       // MapLibre сам направляет click в обработчики слоёв.
       chestTestNote('Отправка события карте',{stage:'map-fire'});
