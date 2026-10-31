@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6
+// @version      3.6.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6</span>
+      <span>🐹 Hamster King Helper v3.6.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1310,9 +1310,38 @@
     }
     return null;
   }
+  // После бесплатной награды игра показывает 5-секундное предложение.
+  // Продолжаем только по доступной кнопке «Пропустить»/«Продолжить».
+  let giftOverlayLastClick = 0;
+  function giftOfferVisible() {
+    return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
+      .some(el => el.children.length < 4 && giftVisible(el) &&
+        /сделка стратега/i.test(giftText(el)) && giftText(el).length < 90);
+  }
+  function advanceGiftOffer() {
+    if (!giftOfferVisible() || Date.now() - giftOverlayLastClick < 4500) return false;
+    const candidates = Array.from(document.querySelectorAll('button,[role="button"]'))
+      .filter(el => giftVisible(el) && !el.disabled &&
+        el.getAttribute('aria-disabled') !== 'true' &&
+        /^(пропустить|продолжить)$/.test(giftText(el)));
+    const button = candidates.find(el => {
+      const style = getComputedStyle(el);
+      return style.opacity !== '0' && style.cursor !== 'not-allowed' &&
+        !el.classList.contains('disabled') && !el.hasAttribute('disabled');
+    });
+    if (!button) {
+      giftStatus('Ожидаю окончания таймера предложения…');
+      return true;
+    }
+    button.click();
+    giftOverlayLastClick = Date.now();
+    giftStatus('Закрываю предложение без покупки…');
+    return true;
+  }
   async function collectGifts(manual = false) {
     if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
     if (!manual && !uiSettings.autoGifts) return;
+    if (advanceGiftOffer()) return;
     if (!giftShopOpen()) {
       if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
       return;
