@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.3
+// @version      3.8.4
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.3</span>
+      <span>🐹 Hamster King Helper v3.8.4</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1436,19 +1436,28 @@
   // Безопасный однократный тест открытия через события MapLibre.
   // Строго один подтверждённый доходный маркер, никакого сбора наград.
   let chestTestBusy = false;
+  let chestTestLog = {};
+  const chestTestNote = (step, info = {}) => {
+    chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
+      version:'3.8.4',time:new Date().toISOString(),url:location.href,step};
+    chestScanReport = JSON.stringify(chestTestLog,null,2);
+    chestTestNote(step + ' — отчёт доступен по кнопке 📋.');
+  };
   $('chestOpenTest').onclick = () => {
     if (chestTestBusy) return;
+    chestTestLog = {};
+    chestTestNote('Тест начат');
     const map = getMap();
     if (!map || !map.getCanvas || !map.project || !map.queryRenderedFeatures ||
         typeof map.fire !== 'function') {
-      chestScanStatus('Карта MapLibre не готова.');
+      chestTestNote('Карта MapLibre не готова.');
       return;
     }
     try {
       const canvas = map.getCanvas();
       const width = canvas.clientWidth, height = canvas.clientHeight;
       if (!width || !height || !map.getLayer('markers-layer')) {
-        chestScanStatus('Слой маркеров ещё не готов.');
+        chestTestNote('Слой маркеров ещё не готов.');
         return;
       }
       const matches = map.queryRenderedFeatures([[0,0],[width,height]],{
@@ -1458,35 +1467,39 @@
         typeof f.properties?.buildingId === 'string' &&
         f.properties.buildingId.startsWith('city_name_ftue_europe_building_'));
       const unique = new Map(matches.map(f=>[f.properties.buildingId,f]));
+      chestTestLog.candidates = [...unique.keys()];
+      chestTestLog.viewport = {width,height};
       if (unique.size !== 2) {
         // В отчёте было 2 обычных доходных здания и 3 ресурсных.
         // Избегаем открытия произвольных маркеров при изменении карты.
-        chestScanStatus('Найдено основных доходных зданий: '+unique.size+
+        chestTestNote('Найдено основных доходных зданий: '+unique.size+
           ' (ожидалось 2). Тест отменён.');
         return;
       }
       const feature = unique.get('city_name_ftue_europe_building_1');
       if (!feature) {
-        chestScanStatus('Подтверждённый маркер building_1 не виден.');
+        chestTestNote('Подтверждённый маркер building_1 не виден.');
         return;
       }
       const point = map.project(feature.geometry.coordinates);
+      chestTestLog.selected = feature.properties.buildingId;
+      chestTestLog.point = {x:point.x,y:point.y};
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
           point.x < 15 || point.y < 15 ||
           point.x > width-15 || point.y > height-15) {
-        chestScanStatus('Маркер вне безопасной области карты.');
+        chestTestNote('Маркер вне безопасной области карты.');
         return;
       }
       const top = map.queryRenderedFeatures([point.x,point.y],{
         layers:['markers-layer']
       });
       if (!top.some(f=>f.properties?.buildingId === feature.properties.buildingId)) {
-        chestScanStatus('Маркер перекрыт или не найден в точке клика.');
+        chestTestNote('Маркер перекрыт или не найден в точке клика.');
         return;
       }
       chestTestBusy = true;
       const id = feature.properties.buildingId;
-      chestScanStatus('Проверяю открытие '+id+'…');
+      chestTestNote('Проверяю открытие '+id+'…');
       $('panel').classList.add('hidden');
       $('mini').classList.remove('hidden');
       const originalEvent = new MouseEvent('click',{
@@ -1496,17 +1509,18 @@
       });
       // MapLibre сам направляет click в обработчики слоёв.
       map.fire('click',{point,lngLat:map.unproject(point),originalEvent});
+      chestTestNote('Событие MapLibre отправлено',{eventTrusted:originalEvent.isTrusted});
       setTimeout(()=>{
         const pageText = document.body?.innerText || '';
         const opened = /Время получения дохода\s*30\s*мин/i.test(pageText);
-        chestScanStatus(opened
+        chestTestNote(opened
           ? '✓ Окно дохода открылось! Сбор не выполнялся.'
-          : 'Окно дохода не подтверждено. Нужна следующая диагностика.');
+          : 'Окно дохода не подтверждено.',{opened,visibility:document.visibilityState});
         chestTestBusy = false;
       },1000);
     } catch(error) {
       chestTestBusy = false;
-      chestScanStatus('Ошибка теста: '+error.message);
+      chestTestNote('Ошибка теста: '+error.message);
     }
   };
 
