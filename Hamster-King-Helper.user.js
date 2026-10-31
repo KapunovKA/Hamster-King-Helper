@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.9
+// @version      3.9.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.9</span>
+      <span>🐹 Hamster King Helper v3.9.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -273,6 +273,7 @@
         <button id="chestScanRun" class="btn">🔎 Найти</button>
         <button id="chestScanCopy" class="btn">📋 Отчёт</button>
         <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
+        <button id="chestCollectTest" class="btn purple" title="Однократно нажимает СОБРАТЬ только в подтверждённом окне дохода">💰 Собрать (тест)</button>
         <button id="chestTapRecord" class="btn" title="Записывает одно ручное нажатие на карту">🎯 Записать нажатие</button>
       </div>
       <div class="dash-card">
@@ -1439,7 +1440,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
-      version:'3.8.9',time:new Date().toISOString(),url:location.href,step};
+      version:'3.9.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1544,6 +1545,86 @@
       chestTestBusy = false;
       chestTestNote('Ошибка теста: '+error.message,{
         errorName:error.name, errorStack:String(error.stack || '').slice(0,1400)
+      });
+    }
+  };
+
+
+  // ===== ОДНОКРАТНАЯ ПРОВЕРКА СБОРА ДОХОДА =====
+  // Не вызывает игровое API, не нажимает магазины или платные предложения.
+  // Требует видимый диалог дохода и ровно одну кнопку «СОБРАТЬ».
+  let chestCollectAttempted = false;
+  function chestElementVisible(element) {
+    if (!element || !element.isConnected) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 5 && rect.height > 5 &&
+      rect.bottom > 0 && rect.top < innerHeight &&
+      rect.right > 0 && rect.left < innerWidth &&
+      style.display !== 'none' && style.visibility !== 'hidden' &&
+      style.pointerEvents !== 'none';
+  }
+  const chestClean = text => String(text || '').replace(/\\s+/g, ' ').trim();
+
+  $('chestCollectTest').onclick = () => {
+    if (chestCollectAttempted) {
+      chestTestNote('В этой вкладке тест сбора уже запускался. Повтор заблокирован.',{
+        mode:'chest-collect-test',stage:'repeat-blocked'
+      });
+      return;
+    }
+    try {
+      const candidates = [...document.querySelectorAll(
+        'button,[role="button"],input[type="button"],[class*="button"],[class*="Button"]'
+      )].filter(chestElementVisible).filter(el =>
+        /^собрать$/i.test(chestClean(el.innerText || el.value || el.textContent)) &&
+        !el.disabled && el.getAttribute('aria-disabled') !== 'true'
+      );
+      const details = candidates.map(element => {
+        let parent = element.parentElement, match = null, depth = 0;
+        for (; parent && parent !== document.body && depth < 9;
+          parent = parent.parentElement, depth++) {
+          const label = chestClean(parent.innerText || parent.textContent);
+          const rect = parent.getBoundingClientRect();
+          if (/время получения дохода/i.test(label) &&
+              rect.width > 80 && rect.height > 50 &&
+              rect.width < innerWidth * 0.95 &&
+              rect.height < innerHeight * 0.95) {
+            match = {depth,ancestorTag:parent.tagName,dialogText:label.slice(0,350)};
+            break;
+          }
+        }
+        return {label:chestClean(element.innerText || element.textContent),
+          tag:element.tagName,className:String(element.className || '').slice(0,100),
+          match};
+      });
+      chestTestNote('Проверка окна дохода',{
+        mode:'chest-collect-test',stage:'find-collect-button',
+        collectCandidates:details
+      });
+      const accepted = details.map((d,i)=>d.match ? candidates[i] : null)
+        .filter(Boolean);
+      if (accepted.length !== 1) {
+        chestTestNote('Безопасный сбор отменён: не подтверждена единственная кнопка дохода.',{
+          mode:'chest-collect-test',stage:'no-unique-income-button',
+          acceptedCount:accepted.length
+        });
+        return;
+      }
+      // Блокировка устанавливается ДО клика, чтобы избежать двойного списания.
+      chestCollectAttempted = true;
+      const button = accepted[0];
+      chestTestNote('Выполняю однократное нажатие СОБРАТЬ',{
+        mode:'chest-collect-test',stage:'before-click'
+      });
+      button.click();
+      chestTestNote('Нажатие отправлено. Проверь, получен ли доход.',{
+        mode:'chest-collect-test',stage:'clicked',clicked:true
+      });
+    } catch (error) {
+      chestTestNote('Ошибка тестового сбора: ' + error.message,{
+        mode:'chest-collect-test',stage:'error',
+        errorName:error.name,errorStack:String(error.stack || '').slice(0,1400)
       });
     }
   };
