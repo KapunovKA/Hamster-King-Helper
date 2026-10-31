@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.5
+// @version      3.8.6
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.5</span>
+      <span>🐹 Hamster King Helper v3.8.6</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1439,7 +1439,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,...info,mode:'maplibre-open-test',
-      version:'3.8.5',time:new Date().toISOString(),url:location.href,step};
+      version:'3.8.6',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1469,10 +1469,13 @@
       const unique = new Map(matches.map(f=>[f.properties.buildingId,f]));
       chestTestLog.candidates = [...unique.keys()];
       chestTestLog.viewport = {width,height};
-      if (unique.size !== 2) {
-        // В отчёте было 2 обычных доходных здания и 3 ресурсных.
-        // Избегаем открытия произвольных маркеров при изменении карты.
-        chestTestNote('Найдено основных доходных зданий: '+unique.size+
+      // Ресурсные здания тоже имеют hasIncome=true. Они не должны
+      // блокировать проверку заранее подтверждённого building_1.
+      const ordinary = [...unique.keys()].filter(id =>
+        /^city_name_ftue_europe_building_\\d+$/.test(id));
+      chestTestLog.ordinaryCandidates = ordinary;
+      if (ordinary.length !== 2) {
+        chestTestNote('Обычных доходных зданий: '+ordinary.length+
           ' (ожидалось 2). Тест отменён.');
         return;
       }
