@@ -321,7 +321,7 @@
     if (details.open) details.scrollIntoView({block:'nearest',behavior:'smooth'});
   };
   const couponSummaryObserver = new MutationObserver(() => {
-    const value = $('couponStatus').textContent.trim().replace(/\\s+/g,' ');
+    const value = $('couponStatus').textContent.trim().replace(/\s+/g,' ');
     $('couponSummary').textContent = value.slice(0,75) || 'Автопроверка каждые 30 минут';
   });
   couponSummaryObserver.observe($('couponStatus'), {childList:true,characterData:true,subtree:true});
