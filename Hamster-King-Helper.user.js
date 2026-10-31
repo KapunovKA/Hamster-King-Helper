@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.8.0
+// @version      3.8.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -243,7 +243,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.8.0</span>
+      <span>🐹 Hamster King Helper v3.8.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -272,6 +272,7 @@
         <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
         <button id="chestScanRun" class="btn">🔎 Найти</button>
         <button id="chestScanCopy" class="btn">📋 Отчёт</button>
+        <button id="chestOpenTest" class="btn purple" title="Пробный клик по одному доходному маркеру, без сбора">📦 Открыть (тест)</button>
       </div>
       <div class="dash-card">
         <span class="dash-title">🗺️ Слухи</span>
@@ -1367,6 +1368,69 @@
       chestScanReport = 'Ошибка: ' + String(error);
     }
   }
+
+  // Пробное открытие: один клик по одному из пяти видимых доходных маркеров.
+  // Не нажимаем «СОБРАТЬ», не используем игровые API и не запускаем повторения.
+  let chestOpenTestBusy = false;
+  $('chestOpenTest').onclick = () => {
+    if (chestOpenTestBusy) return;
+    const map = getMap();
+    if (!map || typeof map.queryRenderedFeatures !== 'function' ||
+        typeof map.project !== 'function') {
+      chestScanStatus('Карта не найдена. Открой город и повтори.');
+      return;
+    }
+    try {
+      const canvas = map.getCanvas();
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (!width || !height) {
+        chestScanStatus('Карта ещё не готова.');
+        return;
+      }
+      const candidates = map.queryRenderedFeatures([[0,0],[width,height]], {
+        layers: ['markers-layer']
+      }).filter(feature =>
+        feature.geometry?.type === 'Point' &&
+        feature.properties?.hasIncome === true &&
+        typeof feature.properties?.buildingId === 'string' &&
+        Array.isArray(feature.geometry?.coordinates)
+      );
+      const unique = new Map();
+      for (const f of candidates) unique.set(f.properties.buildingId, f);
+      if (unique.size !== 5) {
+        chestScanStatus('Безопасная проверка: найдено ' + unique.size +
+          ' доходных маркеров вместо 5. Клик отменён. Пришли отчёт.');
+        return;
+      }
+      const feature = [...unique.values()][0];
+      const point = map.project(feature.geometry.coordinates);
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
+          point.x < 12 || point.y < 12 ||
+          point.x > width - 12 || point.y > height - 12) {
+        chestScanStatus('Маркер у края карты. Клик отменён.');
+        return;
+      }
+      const rect = canvas.getBoundingClientRect();
+      const x = rect.left + point.x;
+      const y = rect.top + point.y;
+      chestOpenTestBusy = true;
+      $('panel').classList.add('hidden');
+      $('mini').classList.remove('hidden');
+      chestScanStatus('Пробный клик: ' + feature.properties.buildingId +
+        '. Проверь, открылось ли окно дохода. Сбор не выполняется.');
+      // Используем событие клика по canvas, как при обычном нажатии пользователя.
+      canvas.dispatchEvent(new MouseEvent('click', {
+        bubbles:true, cancelable:true, view:window,
+        clientX:x, clientY:y, button:0, buttons:0
+      }));
+      setTimeout(() => { chestOpenTestBusy = false; }, 2500);
+    } catch (error) {
+      chestOpenTestBusy = false;
+      chestScanStatus('Тест не выполнен: ' + error.message);
+    }
+  };
+
   $('chestScanRun').onclick = scanMapChests;
   $('chestScanCopy').onclick = () => {
     const text = chestScanReport;
