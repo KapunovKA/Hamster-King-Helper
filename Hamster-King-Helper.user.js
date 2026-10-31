@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.6.6
+// @version      3.6.7
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -218,7 +218,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.6.6</span>
+      <span>🐹 Hamster King Helper v3.6.7</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1331,10 +1331,9 @@
     return null;
   }
   // Окно предложения после бесплатного подарка.
-  // Нажимаем только «Пропустить»/«Продолжить» после завершения таймера.
+  // Нажимаем только доступную кнопку «Пропустить»/«Продолжить» без дополнительного ожидания таймера.
   let giftManualUntil = 0;
   let giftOverlayLastClick = 0;
-  let giftOverlayFirstSeen = 0;
   function giftOfferVisible() {
     return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
       .some(el => el.children.length < 4 && giftVisible(el) &&
@@ -1366,13 +1365,7 @@
   }
   function advanceGiftOffer() {
     if (!giftOfferVisible()) {
-      giftOverlayFirstSeen = 0;
       return false;
-    }
-    if (!giftOverlayFirstSeen) giftOverlayFirstSeen = Date.now();
-    if (Date.now() - giftOverlayFirstSeen < 5500) {
-      giftStatus('Жду 5 секунд до пропуска предложения…');
-      return true;
     }
     if (Date.now() - giftOverlayLastClick < 4500 || !giftCanAct()) return true;
     const target = giftSafeAdvanceTarget();
