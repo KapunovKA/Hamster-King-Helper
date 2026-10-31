@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.10.0
+// @version      3.10.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -236,6 +236,10 @@
     .settings-box .setting-row { font-size:12px; padding:5px 0; }
     .dash-secondary { margin-top:8px; }
     .dash-secondary .dash-details { margin-top:6px; }
+    .chest-tools { padding-top:9px; margin-top:9px; border-top:1px solid #38465f; }
+    .chest-tool-buttons { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:7px; }
+    .chest-tool-buttons .btn { width:100%; margin:0; padding:7px 5px; font-size:11px; }
+    .chest-tool-buttons .btn:last-child { grid-column:1/-1; }
     @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
   </style>
 
@@ -243,7 +247,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.10.0</span>
+      <span>🐹 Hamster King Helper v3.10.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -252,7 +256,7 @@
 
     <div id="settingsBox" class="settings-box hidden">
       <div class="settings-title">⚙️ Настройки интерфейса</div>
-      <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика</label>
+      <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
       <label class="setting-row"><input type="checkbox" data-setting="manual"> Ручной ввод слухов</label>
       <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
       <label class="setting-row"><input type="checkbox" data-setting="coupons"> Купоны Telegram</label>
@@ -270,14 +274,8 @@
       </div>
       <div id="section-chest-scan" class="dash-card">
         <span class="dash-title">📦 Сундуки на карте</span>
-        <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
         <div id="chestAutoStatus" class="small">Автосбор выключен</div>
         <button id="chestAutoToggle" class="btn purple" title="Включить или выключить безопасный автосбор дохода">▶ Автосбор: ВЫКЛ</button>
-        <button id="chestScanRun" class="btn">🔎 Найти</button>
-        <button id="chestScanCopy" class="btn">📋 Отчёт</button>
-        <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
-        <button id="chestCollectTest" class="btn purple" title="Однократно нажимает СОБРАТЬ только в подтверждённом окне дохода">💰 Собрать (тест)</button>
-        <button id="chestTapRecord" class="btn" title="Записывает одно ручное нажатие на карту">🎯 Записать нажатие</button>
       </div>
       <div class="dash-card">
         <span class="dash-title">🗺️ Слухи</span>
@@ -307,8 +305,19 @@
         <a class="link" href="https://t.me/official_crypto_witch" target="_blank" rel="noopener noreferrer">Открыть @official_crypto_witch</a>
       </details>
       <details id="section-diagnostics" class="dash-details">
-        <summary>🛠️ Диагностика</summary>
+        <summary>🛠️ Диагностика и служебные кнопки</summary>
         <div id="diag" class="block small"></div>
+        <div class="chest-tools">
+          <div class="settings-title">📦 Инструменты сундуков</div>
+          <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
+          <div class="chest-tool-buttons">
+            <button id="chestScanRun" class="btn">🔎 Найти</button>
+            <button id="chestScanCopy" class="btn">📋 Отчёт</button>
+            <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
+            <button id="chestCollectTest" class="btn purple" title="Однократно нажимает СОБРАТЬ только в подтверждённом окне дохода">💰 Собрать (тест)</button>
+            <button id="chestTapRecord" class="btn" title="Записывает одно ручное нажатие на карту">🎯 Записать нажатие</button>
+          </div>
+        </div>
       </details>
       <details id="section-manual" class="dash-details">
         <summary>✏️ Ручной ввод слухов</summary>
@@ -1448,7 +1457,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.10.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.10.1',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1679,7 +1688,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.10.0',
+      version: '3.10.1',
       time: new Date().toISOString(),
       url: location.href,
       step,
