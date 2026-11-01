@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.11.0
+// @version      3.12.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -364,7 +364,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.11.0</span>
+      <span>🐹 Hamster King Helper v3.12.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -397,6 +397,7 @@
       <div class="dash-card">
         <span class="dash-title">🗺️ Слухи</span>
         <div class="small">Подсветка на карте</div>
+        <div id="iphoneRumorStatus" class="small hidden" aria-live="polite"></div>
         <button id="refresh" class="btn">↻ Обновить</button>
       </div>
       <div class="dash-card">
@@ -762,6 +763,229 @@
     }
   }
 
+
+  // ===== ПОДСВЕТКА СЛУХОВ: МОСТ ДЛЯ iPHONE / SAFARI =====
+  // Userscripts на iOS может выполнять код в изолированном JS-мире,
+  // где React-ссылки на MapLibre недоступны. Внедрённый скрипт работает
+  // в мире самой страницы и только добавляет/удаляет слой карты.
+  function iphonePageMapWorker(channel) {
+    'use strict';
+    const layerId = 'hk-unified-rumors';
+    let mapCache = null, oldSignature = '';
+    const respond = data => document.dispatchEvent(new CustomEvent(
+      channel + ':response', {detail:JSON.stringify(data)}
+    ));
+    function isMap(v) {
+      return v && typeof v.addLayer === 'function' &&
+        typeof v.getSource === 'function' && typeof v.getStyle === 'function';
+    }
+    function inspect(rootValue) {
+      const queue = [{v:rootValue,d:0}], seen = new Set();
+      const fields = ['_map','map','mapRef','current','memoizedState',
+        'memoizedProps','stateNode','child','return','sibling','ref',
+        'value','element','instance','_reactInternals','alternate',
+        'baseState','next','props','children'];
+      for (let count = 0; queue.length && count < 3000; count++) {
+        const {v,d} = queue.shift();
+        if (!v || (typeof v !== 'object' && typeof v !== 'function') ||
+            seen.has(v) || d > 12) continue;
+        seen.add(v);
+        if (isMap(v)) return v;
+        for (const key of fields) {
+          try {
+            const next = v[key];
+            if (next && (typeof next === 'object' || typeof next === 'function'))
+              queue.push({v:next,d:d+1});
+          } catch {}
+        }
+        if (d < 4) {
+          try {
+            for (const key of Object.keys(v)) {
+              if (/^__react(Fiber|Props|Container)\$/.test(key))
+                queue.push({v:v[key],d:d+1});
+            }
+          } catch {}
+        }
+      }
+      return null;
+    }
+    function locate() {
+      if (mapCache) {
+        try {
+          if (mapCache.getContainer()?.isConnected) return mapCache;
+        } catch {}
+        mapCache = null;
+        oldSignature = '';
+      }
+      const nodes = [
+        document.querySelector('#areas-map'),
+        document.querySelector('#main-map'),
+        ...document.querySelectorAll('.maplibregl-map')
+      ].filter(Boolean);
+      const seen = new Set();
+      for (const element of nodes) {
+        for (let node = element, depth = 0;
+             node && depth < 9; node = node.parentElement,depth++) {
+          if (seen.has(node)) continue;
+          seen.add(node);
+          for (const key of Object.keys(node)) {
+            if (!/^__react(Fiber|Props|Container)\$/.test(key)) continue;
+            const found = inspect(node[key]);
+            if (found) {
+              mapCache = found;
+              return found;
+            }
+          }
+        }
+      }
+      return null;
+    }
+    document.addEventListener(channel + ':request', event => {
+      try {
+        const req = JSON.parse(event.detail);
+        if (req?.cmd === 'ping') {
+          respond({state:'ready'});
+          return;
+        }
+        if (req?.cmd !== 'apply' && req?.cmd !== 'remove') return;
+        const map = locate();
+        if (!map) {
+          respond({state:'waiting',reason:'MapLibre пока не доступен в странице'});
+          return;
+        }
+        if (!map.isStyleLoaded() || !map.getSource('areas-data')) {
+          respond({state:'waiting',reason:'Жду загрузки карты и areas-data'});
+          return;
+        }
+        if (req.cmd === 'remove') {
+          if (map.getLayer(layerId)) map.removeLayer(layerId);
+          oldSignature = '';
+          respond({state:'removed'});
+          return;
+        }
+        const points = req.points;
+        if (!Array.isArray(points) || points.length < 1 || points.length > 3 ||
+            !points.every(p => Number.isInteger(p.x) &&
+              Number.isInteger(p.y) && p.x >= 0 && p.y >= 0 &&
+              p.x < 500 && p.y < 500)) {
+          respond({state:'error',reason:'Недопустимые координаты слухов'});
+          return;
+        }
+        if (oldSignature === req.signature && map.getLayer(layerId)) {
+          respond({state:'applied',count:points.length,city:req.city});
+          return;
+        }
+        if (map.getLayer(layerId)) map.removeLayer(layerId);
+        map.addLayer({
+          id:layerId,type:'fill',source:'areas-data',
+          filter:['any',...points.map(p => ['all',
+            ['==',['get','x'],p.y],['==',['get','y'],p.x]
+          ])],
+          paint:{
+            'fill-color':['case',['has','rumorId'],'#20d765','#ff3030'],
+            'fill-opacity':0.72,'fill-outline-color':'#ffffff'
+          }
+        },map.getLayer('areas-grid-layer') ? 'areas-grid-layer' : undefined);
+        oldSignature = req.signature;
+        respond({state:'applied',count:points.length,city:req.city});
+      } catch (error) {
+        mapCache = null;
+        oldSignature = '';
+        respond({state:'error',reason:String(error.message || error).slice(0,200)});
+      }
+    });
+    respond({state:'ready'});
+  }
+
+  let iphoneBridgeReady = false;
+  let iphoneBridgeInstalled = false;
+  let iphoneBridgeState = 'Подключение к карте…';
+  let iphoneLastSentKey = '';
+  let iphoneLastSentAt = 0;
+  const iphoneChannel = 'hk-rumors-ios-' + Math.random().toString(36).slice(2);
+  function iphoneBridgeNote(text) {
+    iphoneBridgeState = text;
+    if (!isIPhone) return;
+    const status = $('iphoneRumorStatus');
+    status.classList.remove('hidden');
+    status.textContent = text;
+  }
+  function iphoneBridgeSend(data) {
+    if (!iphoneBridgeReady) return;
+    try {
+      document.dispatchEvent(new CustomEvent(iphoneChannel + ':request', {
+        detail:JSON.stringify(data)
+      }));
+    } catch (error) {
+      iphoneBridgeNote('iPhone: ошибка передачи — ' + error.message);
+    }
+  }
+  function iphoneInitBridge() {
+    if (!isIPhone || iphoneBridgeInstalled) return;
+    iphoneBridgeInstalled = true;
+    iphoneBridgeNote('iPhone: подключаю подсветку к игре…');
+    document.addEventListener(iphoneChannel + ':response', event => {
+      let response;
+      try { response = JSON.parse(event.detail); } catch { return; }
+      if (response.state === 'ready') {
+        iphoneBridgeReady = true;
+        iphoneBridgeNote('iPhone: подключено к странице игры');
+        if (city && rumors.size) setTimeout(() => iphoneApplyHighlight(true),0);
+      } else if (response.state === 'applied') {
+        signature = city + '|' + (rumors.get(city) || [])
+          .map(p => p.key).join(',');
+        mapInfo = 'iPhone: слой MapLibre установлен';
+        completionInfo = '✓ rumorId: зелёный; без ✓: красный';
+        iphoneBridgeNote('iPhone: подсвечено ' + response.count +
+          ' клеток (' + response.city + ')');
+      } else if (response.state === 'waiting') {
+        iphoneBridgeNote('iPhone: ' + response.reason);
+      } else if (response.state === 'error') {
+        iphoneBridgeNote('iPhone: ошибка подсветки — ' + response.reason);
+      } else if (response.state === 'removed') {
+        iphoneBridgeNote('iPhone: подсветка сброшена');
+      }
+      renderStatus();
+    });
+    try {
+      const node = document.createElement('script');
+      const nonce = document.querySelector('script[nonce]')?.nonce;
+      if (nonce) node.nonce = nonce;
+      node.textContent = '(' + iphonePageMapWorker.toString() +
+        ')(' + JSON.stringify(iphoneChannel) + ');';
+      (document.head || document.documentElement).appendChild(node);
+      node.remove();
+    } catch (error) {
+      iphoneBridgeNote('iPhone: ошибка подключения — ' + error.message);
+    }
+    setTimeout(() => {
+      if (!iphoneBridgeReady)
+        iphoneBridgeNote('iPhone: Safari не разрешил доступ к странице (CSP).');
+    },4000);
+  }
+  function iphoneApplyHighlight(force = false) {
+    if (!isIPhone) return;
+    iphoneInitBridge();
+    if (!iphoneBridgeReady || !city || !rumors.size) return;
+    const points = rumors.get(city) || [];
+    if (!points.length) return;
+    const key = city + '|' + points.map(p => p.key).join(',');
+    const now = Date.now();
+    if (!force && iphoneLastSentKey === key && now - iphoneLastSentAt < 5000)
+      return;
+    iphoneLastSentKey = key;
+    iphoneLastSentAt = now;
+    iphoneBridgeSend({
+      cmd:'apply',city,signature:key,
+      points:points.map(p => ({x:p.x,y:p.y}))
+    });
+  }
+  function iphoneClearHighlight() {
+    if (!isIPhone || !iphoneBridgeReady) return;
+    iphoneLastSentKey = '';
+    iphoneBridgeSend({cmd:'remove'});
+  }
+
   // ===== ПОДСВЕТКА СЛУХОВ =====
 
   function removeLayers(map) {
@@ -775,6 +999,7 @@
   }
 
   function clearHighlight() {
+    if (isIPhone) iphoneClearHighlight();
     removeLayers(readyMap());
 
     if (appliedMap) {
@@ -811,6 +1036,10 @@
 
   function highlight() {
     const map = readyMap();
+    if (isIPhone && !map) {
+      iphoneApplyHighlight();
+      return;
+    }
     if (!map || !city || !rumors.size) return;
 
     const points = rumors.get(city) || [];
@@ -961,7 +1190,8 @@
       `Город: ${city || 'Не определён'}\n` +
       `Слухов загружено: ${total}\n` +
       `Состояние галочек: ${completionInfo}\n` +
-      `Последнее действие: ${lastAction}`;
+      `Последнее действие: ${lastAction}` +
+      (isIPhone ? "\nСвязь iPhone: " + iphoneBridgeState : "");
   }
 
   // ===== ЗАГРУЗКА СЛУХОВ =====
@@ -1580,7 +1810,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.11.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.12.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1810,7 +2040,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.11.0',
+      version: '3.12.0',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2238,7 +2468,7 @@
       setCity(pending, 'автоматически');
     }
 
-    if (map && city) {
+    if ((map || isIPhone) && city) {
       highlight();
     }
 
@@ -2253,6 +2483,7 @@
     renderStatus();
   }, 1000);
 
+  if (isIPhone) iphoneInitBridge();
   renderStatus();
   loadRumors();
   loadCoupons();
