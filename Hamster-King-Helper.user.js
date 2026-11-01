@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.13.3
+// @version      3.13.4
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.13.3</span>
+      <span>🐹 Hamster King Helper v3.13.4</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1931,7 +1931,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.13.3',time:new Date().toISOString(),url:location.href,step};
+      version:'3.13.4',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2161,7 +2161,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.13.3',
+      version: '3.13.4',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2559,14 +2559,24 @@
     }
     const button = giftCandidate();
     if (!button) {
-      giftStatus('Доступных кнопок бесплатных подарков не найдено.');
-      if (!giftFlowActive) giftManualUntil = 0;
+      // Остаёмся в режиме ожидания, пока не исчезнет таймер.
+      giftStatus('Ожидаю кнопку «Получить» без таймера…');
       return;
     }
     // Нет искусственного ожидания: «Получить» доступна после того,
     // как таймер исчез и кнопка вновь показала разрешённую подпись.
     if (!giftActionReady(button)) {
       giftStatus('Жду изменения кнопки после предыдущего получения…');
+      return;
+    }
+    // Виртуальный click() может пройти сквозь перекрывающий диалог.
+    // Нажимаем только реально видимую и доступную кнопку.
+    const rect = button.getBoundingClientRect();
+    const underPointer = document.elementFromPoint(
+      rect.left + rect.width / 2, rect.top + rect.height / 2
+    );
+    if (!underPointer || !button.contains(underPointer)) {
+      giftStatus('Кнопка закрыта другим окном. Ожидаю доступности…');
       return;
     }
     giftBusy = true;
