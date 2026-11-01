@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.13.2
+// @version      3.13.3
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.13.2</span>
+      <span>🐹 Hamster King Helper v3.13.3</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1931,7 +1931,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.13.2',time:new Date().toISOString(),url:location.href,step};
+      version:'3.13.3',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2161,7 +2161,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.13.2',
+      version: '3.13.3',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2376,14 +2376,28 @@
   // Никаких API-вызовов, обхода таймеров или платных покупок.
   // Работает только с видимыми кнопками на открытой странице магазина.
   let giftBusy = false;
-  let giftLastAttempt = 0;
-  const GIFT_CLICK_DELAY_MS = 3000;
-  let giftLastActionAt = 0;
-  const giftCanAct = () => Date.now() - giftLastActionAt >= GIFT_CLICK_DELAY_MS;
-  const giftMarkAction = () => { giftLastActionAt = Date.now(); };
   let giftClicks = 0;
-  let giftLastButton = null;
-  let giftLastButtonAt = 0;
+  // Вместо паузы 3 секунды отслеживаем реальное изменение кнопок.
+  // Повтор на том же элементе невозможен, пока его подпись не изменится
+  // (например, «Получить» -> таймер -> «Получить»).
+  const giftClickedLabels = new WeakMap();
+  const giftAwaitingChanges = new Set();
+  function giftObserveButtonChanges() {
+    for (const button of giftAwaitingChanges) {
+      if (!button.isConnected ||
+          giftText(button) !== giftClickedLabels.get(button)) {
+        giftClickedLabels.delete(button);
+        giftAwaitingChanges.delete(button);
+      }
+    }
+  }
+  function giftActionReady(button) {
+    return button && !giftClickedLabels.has(button);
+  }
+  function giftMarkClicked(button) {
+    giftClickedLabels.set(button, giftText(button));
+    giftAwaitingChanges.add(button);
+  }
   const giftStatus = message => { $('giftStatus').textContent = message; };
   const giftVisible = element => {
     if (!element || !element.isConnected) return false;
@@ -2438,14 +2452,13 @@
   // Нажимаем только доступную кнопку «Пропустить»/«Продолжить» без дополнительного ожидания таймера.
   let giftManualUntil = 0;
   let giftFlowActive = false;
-  let giftOverlayLastClick = 0;
   function giftOfferVisible() {
     // После нажатия «Получить» отслеживаем любой вариант платного
     // предложения, а не только известные названия.
     const skip = giftSafeAdvanceTarget();
-    if (!skip) return false;
-    if (giftFlowActive) return true;
-    // Для восстановления после перезагрузки распознаём известные окна.
+    if (skip) return true;
+    // Таймер ещё может отображаться вместо кнопки «Пропустить».
+    // Не нажимаем на награды под открытым платным предложением.
     return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
       .some(el => el.children.length < 4 && giftVisible(el) &&
         /сделка стратега|доля капо|выбор босса/i.test(giftText(el)) &&
@@ -2479,16 +2492,18 @@
     if (!giftOfferVisible()) {
       return false;
     }
-    if (Date.now() - giftOverlayLastClick < 4500 || !giftCanAct()) return true;
     const target = giftSafeAdvanceTarget();
     if (!target) {
-      giftStatus('Ожидаю доступную кнопку «Пропустить»…');
+      giftStatus('Ожидаю исчезновения таймера на кнопке «Пропустить»…');
+      return true;
+    }
+    if (!giftActionReady(target)) {
+      giftStatus('Ожидаю изменения кнопки «Пропустить» (защита от дубля).');
       return true;
     }
     if (giftDispatchClick(target)) {
-      giftMarkAction();
-      giftOverlayLastClick = Date.now();
-      giftStatus('Нажал «Пропустить» без покупки. Ожидаю следующий подарок…');
+      giftMarkClicked(target);
+      giftStatus('Нажал «Пропустить» без покупки. Проверяю следующий подарок…');
     } else {
       giftStatus('Кнопка пропуска перекрыта. Не нажимаю другие элементы.');
     }
@@ -2496,7 +2511,6 @@
   }
   // Подтверждение успешно полученного ежедневного подарка.
   // Не закрываем посторонние диалоги и не нажимаем платные предложения.
-  let giftConfirmLastClick = 0;
   function confirmReceivedGift() {
     const heading = Array.from(document.querySelectorAll('div,span,h1,h2,h3,h4'))
       .find(el => el.children.length < 4 && giftVisible(el) &&
@@ -2505,7 +2519,6 @@
       .find(el => el.children.length < 4 && giftVisible(el) &&
         /поздравляем,? получено/i.test(giftText(el)) && giftText(el).length < 100);
     if (!heading || !received) return false;
-    if (Date.now() - giftConfirmLastClick < 3000 || !giftCanAct()) return true;
     const target = Array.from(document.querySelectorAll('button,[role="button"],div,span'))
       .find(el => giftVisible(el) && giftText(el) === 'понятно' &&
         !Array.from(el.children).some(child => giftText(child) === 'понятно') &&
@@ -2514,9 +2527,12 @@
       giftStatus('Награда получена. Ожидаю кнопку «Понятно»…');
       return true;
     }
+    if (!giftActionReady(target)) {
+      giftStatus('Ожидаю закрытия подтверждения награды…');
+      return true;
+    }
     if (giftDispatchClick(target)) {
-      giftMarkAction();
-      giftConfirmLastClick = Date.now();
+      giftMarkClicked(target);
       giftFlowActive = false;
       giftStatus('Награда подтверждена. Проверяю следующий подарок…');
     } else {
@@ -2526,12 +2542,13 @@
   }
 
   async function collectGifts(manual = false) {
-    if (giftBusy || Date.now() - giftLastAttempt < 1600) return;
+    if (giftBusy) return;
     if (manual) giftManualUntil = Date.now() + 90000;
     if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil && !giftFlowActive) return;
+    // Освобождаем кнопку только после изменения текста или удаления из DOM.
+    giftObserveButtonChanges();
     if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
-    if (!giftCanAct()) return;
     if (!giftShopOpen()) {
       if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
       return;
@@ -2546,19 +2563,19 @@
       if (!giftFlowActive) giftManualUntil = 0;
       return;
     }
-    // Если интерфейс не изменился, не кликаем по той же кнопке бесконечно.
-    if (button === giftLastButton && Date.now() - giftLastButtonAt < 60000) {
-      giftStatus('Ожидаю обновления награды (защита от повторов).');
+    // Нет искусственного ожидания: «Получить» доступна после того,
+    // как таймер исчез и кнопка вновь показала разрешённую подпись.
+    if (!giftActionReady(button)) {
+      giftStatus('Жду изменения кнопки после предыдущего получения…');
       return;
     }
     giftBusy = true;
-    giftLastAttempt = Date.now();
     try {
-      giftLastButton = button;
-      giftLastButtonAt = Date.now();
+      // Ставим блокировку ДО клика: React может вызвать обработчик
+      // повторно синхронно во время обновления игры.
+      giftMarkClicked(button);
       giftFlowActive = true;
       button.click();
-      giftMarkAction();
       giftClicks++;
       giftStatus('Попыток получения: ' + giftClicks + '. Проверяю следующую награду…');
     } catch (error) {
@@ -2570,7 +2587,7 @@
   $('giftRun').onclick = () => collectGifts(true);
   setInterval(() => {
     if (document.visibilityState === 'visible' && (uiSettings.autoGifts || Date.now() < giftManualUntil)) collectGifts();
-  }, 1200);
+  }, 600);
 
   // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
 
