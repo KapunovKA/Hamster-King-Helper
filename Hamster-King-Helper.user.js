@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.13.1
+// @version      3.13.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -272,14 +272,22 @@
     }
     :host(.hk-iphone) .mini {
       position:fixed;
-      right:max(14px, env(safe-area-inset-right, 0px));
-      bottom:calc(14px + env(safe-area-inset-bottom, 0px));
+      top:calc(8px + env(safe-area-inset-top, 0px));
+      right:calc(8px + env(safe-area-inset-right, 0px));
+      bottom:auto;
+      left:auto;
       z-index:3;
-      min-width:58px;
-      min-height:58px;
-      border-radius:20px;
-      font-size:25px;
-      padding:10px;
+      width:44px;
+      height:44px;
+      min-width:44px;
+      min-height:44px;
+      border-radius:14px;
+      font-size:20px;
+      line-height:1;
+      padding:5px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
       pointer-events:auto;
     }
     :host(.hk-iphone) .panel {
@@ -364,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.13.1</span>
+      <span>🐹 Hamster King Helper v3.13.2</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -372,15 +380,19 @@
     </div>
 
     <div id="settingsBox" class="settings-box hidden">
-      <div class="settings-title">⚙️ Настройки интерфейса</div>
-      <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="manual"> Ручной ввод слухов</label>
+      <div class="settings-title">⚙️ Что показывать в панели</div>
+      <label class="setting-row"><input type="checkbox" data-setting="showGifts"> 🎁 Подарки</label>
+      <label class="setting-row"><input type="checkbox" data-setting="showChests"> 📦 Сундуки на карте</label>
+      <label class="setting-row"><input type="checkbox" data-setting="showRumors"> 🗺️ Слухи</label>
+      <label class="setting-row"><input type="checkbox" data-setting="coupons"> 🎟️ Купоны Telegram и их кнопки</label>
+      <label class="setting-row"><input type="checkbox" data-setting="puzzle"> 🧩 Кнопка пазла</label>
       <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
-      <label class="setting-row"><input type="checkbox" data-setting="coupons"> Купоны Telegram</label>
-      <label class="setting-row"><input type="checkbox" data-setting="puzzle"> Кнопка пазла</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автосбор бесплатных подарков</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автосбор сундуков (только видимая карта)</label>
-      <div class="small">Настройки сохраняются автоматически.</div>
+      <label class="setting-row"><input type="checkbox" data-setting="manual"> Ручной ввод слухов</label>
+      <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
+      <div class="settings-title" style="margin-top:12px">⚡ Автоматизация</div>
+      <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автоматически собирать сундуки</label>
+      <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
     <div class="dashboard-grid">
@@ -394,13 +406,13 @@
         <div id="chestAutoStatus" class="small">Автосбор выключен</div>
         <button id="chestAutoToggle" class="btn purple" title="Включить или выключить безопасный автосбор дохода">▶ Автосбор: ВЫКЛ</button>
       </div>
-      <div class="dash-card">
+      <div id="section-rumors-card" class="dash-card">
         <span class="dash-title">🗺️ Слухи</span>
         <div class="small">Подсветка на карте</div>
         <div id="iphoneRumorStatus" class="small hidden" aria-live="polite"></div>
         <button id="refresh" class="btn">↻ Обновить</button>
       </div>
-      <div class="dash-card">
+      <div id="section-coupons-card" class="dash-card">
         <span class="dash-title">🎟️ Купоны Telegram</span>
         <div id="couponSummary" class="small">Автопроверка каждые 30 минут</div>
         <button id="couponOpen" class="btn">Открыть список</button>
@@ -411,7 +423,7 @@
       🏙️ Город (резервный выбор)
       <select id="city"><option value="">Автоматически</option></select>
     </label>
-    <div class="dash-actions">
+    <div id="dashActions" class="dash-actions">
       <button id="puzzle" class="btn purple">🧩 Запустить пазл</button>
       <button id="couponRefresh" class="btn">↻ Проверить купоны</button>
     </div>
@@ -448,8 +460,8 @@
 
   const $ = id => root.getElementById(id);
   $('couponOpen').onclick = () => {
+    if (!uiSettings.coupons) return;
     const details = $('section-coupons');
-    details.classList.remove('hidden');
     details.open = !details.open;
     if (details.open) details.scrollIntoView({block:'nearest',behavior:'smooth'});
   };
@@ -492,6 +504,9 @@
     city: true,
     coupons: true,
     puzzle: true,
+    showGifts: true,
+    showChests: true,
+    showRumors: true,
     autoGifts: false,
     autoChests: false
   };
@@ -504,18 +519,34 @@
     }
   } catch {}
 
-  const sections = {
-    diagnostics: $('section-diagnostics'),
-    manual: $('section-manual'),
-    city: $('section-city'),
-    coupons: $('section-coupons'),
-    puzzle: $('puzzle')
+  // Каждая галочка видимости управляет ВСЕМИ относящимися к ней
+  // элементами, включая карточки и дополнительные кнопки действий.
+  // Настройки автосбора — отдельные функции, не переключатели видимости.
+  const visibleSections = {
+    diagnostics: [$('section-diagnostics')],
+    manual: [$('section-manual')],
+    city: [$('section-city')],
+    coupons: [
+      $('section-coupons-card'),
+      $('section-coupons'),
+      $('couponRefresh')
+    ],
+    puzzle: [$('puzzle')],
+    showGifts: [$('section-gifts')],
+    showChests: [$('section-chest-scan')],
+    showRumors: [$('section-rumors-card')]
   };
 
   function applyUiSettings() {
-    for (const [key, element] of Object.entries(sections)) {
-      element.classList.toggle('hidden', !uiSettings[key]);
+    for (const [key, elements] of Object.entries(visibleSections)) {
+      for (const element of elements) {
+        element.classList.toggle('hidden', !uiSettings[key]);
+      }
     }
+    // Если не осталось ни одной нижней кнопки, убираем и её контейнер.
+    $('dashActions').classList.toggle(
+      'hidden', !uiSettings.puzzle && !uiSettings.coupons
+    );
     root.querySelectorAll('[data-setting]').forEach(input => {
       input.checked = uiSettings[input.dataset.setting];
     });
@@ -1900,7 +1931,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.13.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.13.2',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2130,7 +2161,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.13.1',
+      version: '3.13.2',
       time: new Date().toISOString(),
       url: location.href,
       step,
