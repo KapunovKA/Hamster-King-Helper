@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.14.2
+// @version      3.14.3
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.14.2</span>
+      <span>🐹 Hamster King Helper v3.14.3</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1551,7 +1551,7 @@
     node?.innerText || node?.textContent || node?.value || ''
   ).replace(/\s+/g,' ').trim().toLowerCase();
 
-  function puzzleAckVisible(node) {
+  function puzzleAckVisible(node, allowNoninteractiveLabel = false) {
     if (!node || !node.isConnected || node.disabled ||
         node.getAttribute('aria-disabled') === 'true' ||
         node.hasAttribute('disabled')) return false;
@@ -1561,7 +1561,8 @@
       rect.top < innerHeight && rect.bottom > 0 &&
       rect.left < innerWidth && rect.right > 0 &&
       style.display !== 'none' && style.visibility !== 'hidden' &&
-      style.pointerEvents !== 'none' && style.opacity !== '0';
+      (allowNoninteractiveLabel || style.pointerEvents !== 'none') &&
+      style.opacity !== '0';
   }
   function puzzleAckInUnrelatedWindow(node) {
     // Исключаем чужие окна по близкому окружению кнопки, не по
@@ -1590,7 +1591,9 @@
     for (const node of nodes) {
       if (puzzleAckText(node) !== 'понятно' ||
           [...node.children].some(child => puzzleAckText(child) === 'понятно') ||
-          !puzzleAckVisible(node) ||
+          // Надпись внутри кнопки может иметь pointer-events:none.
+          // Саму кнопку отдельно проверяем на возможность нажатия.
+          !puzzleAckVisible(node, true) ||
           puzzleAckInUnrelatedWindow(node)) continue;
       const rect = node.getBoundingClientRect();
       const hit = document.elementFromPoint(
@@ -2095,7 +2098,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.14.2',time:new Date().toISOString(),url:location.href,step};
+      version:'3.14.3',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2325,7 +2328,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.14.2',
+      version: '3.14.3',
       time: new Date().toISOString(),
       url: location.href,
       step,
