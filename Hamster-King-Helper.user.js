@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.15.1
+// @version      3.16.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.15.1</span>
+      <span>🐹 Hamster King Helper v3.16.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -393,7 +393,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автоматически собирать сундуки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAck"> 🧩 Пазл: автоматически нажимать «Понятно»</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> ⚔️ Пазл: нажимать кнопку боя в карточках противников (расходует мечи)</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -1568,7 +1568,7 @@
       '🧩 Пазл: ' +
       [
         uiSettings.autoPuzzleAck ? 'авто «Понятно»' : '',
-        uiSettings.autoPuzzleAction ? 'авто бой (тратит мечи)' : ''
+        uiSettings.autoPuzzleAction ? 'авто действия (расход ресурсов)' : ''
       ].filter(Boolean).join(' + ');
     $('puzzleAckStatus').classList.remove('hidden');
   }
@@ -1702,12 +1702,14 @@
         '🧩 Не удалось нажать «Понятно»: ' + error.message;
     }
   }
-  // ===== ПАЗЛ: КНОПКА БОЯ В КАРТОЧКЕ ПРОТИВНИКА =====
-  // В отличие от «Понятно», это действие расходует игровые мечи.
-  // Нажимаем только в режиме пазла, включённом пользователем,
-  // и только в карточке с фразой «Можно отыскать/найти/встретить».
-  // Никаких платных предложений, магазинов или универсальных числовых кнопок.
-  const PUZZLE_ENEMY_MARKER = /^можно\s+(?:отыскать|найти|встретить)$/i;
+  // ===== ПАЗЛ: КНОПКА ДЕЙСТВИЯ В КАРТОЧКАХ ЛОКАЦИЙ =====
+  // Эти кнопки могут расходовать мечи, ягоды, монеты и удочки.
+  // Нажимаем в распознанной карточке только в запущенном режиме пазла.
+  // Не подтверждаем выход из локации и покупки за реальные деньги.
+  const PUZZLE_ENEMY_MARKER =
+    /^(?:можно\s+(?:отыскать|найти|встретить)|содержит|включ[её]нная\s+лампочка|горящая\s+лампочка)$/i;
+  const PUZZLE_ACTION_UNSAFE =
+    /покинуть\s+локацию|ты\s+покинешь\s+локацию|не\s+сможешь\s+сюда\s+вернуться|продолжить\s*\?|назад|отмена|₽|usdt|visa|mastercard|ежедневный\s+подарок|сделка\s+стратега|доля\s+капо|выбор\s+босса/i;
   const PUZZLE_ACTION_COST = /^(?:⚔\uFE0F?\s*|🗡\uFE0F?\s*)?(\d{1,5})$/u;
   function puzzleActionEligibleCost(node) {
     const text = puzzleAckText(node);
@@ -1784,13 +1786,18 @@
           break;
         const text = puzzleAckText(dialog);
         if (text.length < 55 || text.length > 2200) continue;
-        if (/покупк|купить|оплатить|пополнить|магазин|vip\s*30|₽|usdt|ежедневный подарок/i.test(text))
+        // В торговых карточках слова «покупка» и «магазин»
+        // допустимы: они расходуют обычные игровые ресурсы.
+        if (PUZZLE_ACTION_UNSAFE.test(text)) continue;
+        if (/лампочка/i.test(puzzleAckText(heading)) &&
+            !/лампочка\s+горит|зажги\s+все\s+девять\s+лампочек/i.test(text))
           continue;
         const match = puzzleActionButtonInDialog(dialog);
         if (!match) continue;
-        const title = text.split(/можно\s+(?:отыскать|найти|встретить)/i)[0]
-          .slice(-100).trim();
-        return {...match,dialog,title:title || 'Карточка противника'};
+        const title = text.split(
+          /можно\s+(?:отыскать|найти|встретить)|содержит|лампочка\s+горит/i
+        )[0].slice(-100).trim();
+        return {...match,dialog,title:title || 'Карточка локации'};
       }
     }
     return null;
@@ -1822,14 +1829,15 @@
     puzzleActionLastDialog = match.dialog;
     puzzleActionLastTitle = match.title;
     try {
-      match.button.click();
+      // Обычный .click() не всегда обрабатывается игровыми div-кнопками.
+      puzzleAckDispatchClick(match.button);
       puzzleActionCount++;
       $('puzzleAckStatus').textContent =
-        '⚔️ Пазл: нажал кнопку боя (' + match.cost +
-        ' мечей); действий: ' + puzzleActionCount;
+        '🧩 Пазл: кнопка действия (' + match.cost +
+        ' ресурсов); нажатий: ' + puzzleActionCount;
     } catch (error) {
       $('puzzleAckStatus').textContent =
-        '⚔️ Пазл: кнопку боя не удалось нажать: ' + error.message;
+        '🧩 Пазл: кнопка действия недоступна: ' + error.message;
     }
   }
 
@@ -2257,7 +2265,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.15.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2487,7 +2495,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.15.1',
+      version: '3.16.0',
       time: new Date().toISOString(),
       url: location.href,
       step,
