@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.12.0
+// @version      3.13.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -364,7 +364,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.12.0</span>
+      <span>🐹 Hamster King Helper v3.13.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1174,7 +1174,7 @@
         (
           points.map(p => p.key).join(', ') ||
           'Слухи не найдены'
-        )
+        ) + '\nИсточник: ' + (rumorLock?.source || 'нет')
       )
       : loadState + '\nОжидаю выбора города';
 
@@ -1191,110 +1191,171 @@
       `Слухов загружено: ${total}\n` +
       `Состояние галочек: ${completionInfo}\n` +
       `Последнее действие: ${lastAction}` +
+      '\nИсточник слухов: ' + (rumorLock?.source || 'не выбран') +
       (isIPhone ? "\nСвязь iPhone: " + iphoneBridgeState : "");
   }
 
   // ===== ЗАГРУЗКА СЛУХОВ =====
 
+  // Слухи меняются каждый игровой день в 15:00 по Москве (UTC+3).
+  // Выбор первого свежего источника запоминаем до следующего обновления.
+  const RUMOR_LOCK_KEY = 'hk-rumors-first-source-v1';
+  const RUMOR_POLL_MS = 3 * 60 * 1000;
+  let rumorLock = null;
+  let rumorLastPoll = 0;
+  const RUMOR_MONTHS = {
+    января:1, февраля:2, марта:3, апреля:4, мая:5, июня:6,
+    июля:7, августа:8, сентября:9, октября:10, ноября:11, декабря:12
+  };
+  const rumorDayKey = (timestamp = Date.now()) => {
+    const shifted = new Date(timestamp + 3 * 3600000);
+    if (shifted.getUTCHours() < 15) shifted.setUTCDate(shifted.getUTCDate() - 1);
+    return shifted.toISOString().slice(0,10);
+  };
+  const emptyRumors = () => new Map(CITIES.map(name => [name,[]]));
+  const rumorPoint = pair => ({
+    x:Number(pair[1]), y:Number(pair[2]),
+    key:Number(pair[1]) + ':' + Number(pair[2])
+  });
+  function rumorCount(data) {
+    return [...data.values()].reduce((total,points) => total + points.length,0);
+  }
+  function rumorValid(data, minimumCities = 8) {
+    let complete = 0;
+    for (const points of data.values()) {
+      if (points.length === 3 && points.every(p =>
+          Number.isInteger(p.x) && Number.isInteger(p.y) &&
+          p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 100 &&
+          new Set(points.map(q => q.key)).size === 3)) complete++;
+    }
+    return complete >= minimumCities;
+  }
   function parseRumors(text) {
-    const parsed = new Map(
-      CITIES.map(name => [name, []])
-    );
-
-    const escaped = CITIES
-      .slice()
-      .sort((a, b) => b.length - a.length)
-      .map(name =>
-        name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      );
-
-    const pattern = new RegExp(
-      '(' + escaped.join('|') + ')\\s*:',
-      'gi'
-    );
-
-    const matches = [...text.matchAll(pattern)];
-
-    for (let i = 0; i < matches.length; i++) {
-      const match = matches[i];
-
-      const name = CITIES.find(item =>
-        item.toLowerCase() === match[1].toLowerCase()
-      );
-
-      if (!name) continue;
-
-      const start = match.index + match[0].length;
-      const end = matches[i + 1]?.index ?? text.length;
-      const part = text.slice(start, end);
-
-      const points = [
-        ...part.matchAll(
-          /\[\s*(\d{1,2})\s*:\s*(\d{1,2})\s*\]/g
-        )
-      ]
-        .slice(0, 3)
-        .map(value => ({
-          x: Number(value[1]),
-          y: Number(value[2]),
-          key:
-            `${Number(value[1])}:` +
-            `${Number(value[2])}`
-        }));
-
-      if (points.length > parsed.get(name).length) {
-        parsed.set(name, points);
+    const result = emptyRumors();
+    const normalized = String(text || '').replace(/\u00a0/g,' ')
+      .replace(/[：﹕]/g,':');
+    // Поддерживаем "Москва: [1:2] [3:4] [5:6]" (Telegram)
+    // и "01:02﹕03:04﹕05:06 Москва" (сайт).
+    const lines = normalized.split(/\r?\n/);
+    for (const lineRaw of lines) {
+      const line = lineRaw.trim();
+      if (!line || line.length > 450) continue;
+      const pairs = [...line.matchAll(/(\d{1,3})\s*:\s*(\d{1,3})/g)]
+        .map(rumorPoint);
+      if (pairs.length !== 3) continue;
+      for (const name of CITIES) {
+        if (line.startsWith(name + ':') ||
+            line.startsWith(name + ' :') ||
+            line.endsWith(' ' + name)) {
+          result.set(name,pairs);
+          break;
+        }
       }
     }
-
-    return parsed;
+    return result;
+  }
+  function rumorPlainText(html) {
+    if (!/<html|<body|<div/i.test(html)) return String(html);
+    const doc = new DOMParser().parseFromString(html,'text/html');
+    doc.querySelectorAll('script,style,noscript').forEach(el => el.remove());
+    doc.querySelectorAll('br').forEach(el => el.replaceWith('\n'));
+    doc.querySelectorAll('p,li,h1,h2,h3,h4').forEach(el => el.append('\n'));
+    return doc.body?.textContent || '';
   }
 
-  function useRumors(html) {
-    let text = html;
+  // Проверяем не только координаты, но и дату публикации сайта:
+  // без этой проверки можно подсветить вчерашние слухи.
+  function siteRumorDay(html) {
+    const text = rumorPlainText(html);
+    const match = text.match(/(\d{1,2})\s*(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)?\s*[-–—]\s*(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})\s*[-–—:]?\s*(?:координат|слух)/i);
+    if (!match) return null;
+    const endYear = Number(match[5]);
+    const endMonth = RUMOR_MONTHS[match[4].toLowerCase()];
+    const startMonth = match[2] ? RUMOR_MONTHS[match[2].toLowerCase()] : endMonth;
+    const startYear = startMonth > endMonth ? endYear-1 : endYear;
+    const date = new Date(Date.UTC(startYear,startMonth-1,Number(match[1])));
+    if (date.getUTCDate() !== Number(match[1]) ||
+        date.getUTCMonth() !== startMonth-1) return null;
+    return date.toISOString().slice(0,10);
+  }
 
-    if (/<html|<body|<div/i.test(html)) {
-      const doc = new DOMParser()
-        .parseFromString(html, 'text/html');
-
-      doc.querySelectorAll(
-        'script,style,noscript'
-      ).forEach(element => element.remove());
-
-      doc.querySelectorAll('br')
-        .forEach(element => {
-          element.replaceWith('\n');
-        });
-
-      doc.querySelectorAll(
-        'p,li,h1,h2,h3,h4'
-      ).forEach(element => {
-        element.append('\n');
-      });
-
-      text = doc.body.textContent || '';
+  function telegramRumorDataset(html, day) {
+    const doc = new DOMParser().parseFromString(html,'text/html');
+    const posts = [];
+    for (const post of doc.querySelectorAll('.tgme_widget_message_wrap')) {
+      const body = post.querySelector('.tgme_widget_message_text');
+      const time = post.querySelector('time[datetime]');
+      if (!body || !time) continue;
+      const timestamp = Date.parse(time.getAttribute('datetime') || '');
+      if (!Number.isFinite(timestamp) || rumorDayKey(timestamp) !== day) continue;
+      const text = body.innerText || body.textContent || '';
+      if (!/hamster\s*king/i.test(text) || !/слух/i.test(text)) continue;
+      const parsed = parseRumors(text);
+      if (!rumorValid(parsed)) continue;
+      posts.push({timestamp,data:parsed});
     }
+    // Первый пост с полным набором слухов за нужный день.
+    posts.sort((a,b) => a.timestamp-b.timestamp);
+    return posts[0]?.data || null;
+  }
 
-    text = text
-      .replace(/\u00a0/g, ' ')
-      .replace(/[：﹕]/g, ':');
-
-    const next = parseRumors(text);
-
-    const count = [...next.values()]
-      .reduce((sum, list) => sum + list.length, 0);
-
-    if (!count) {
-      throw Error('Координаты не найдены');
-    }
-
+  function serializeRumors(data) {
+    return Object.fromEntries([...data].map(([name,points]) => [
+      name,points.map(p => ({x:p.x,y:p.y,key:p.key}))
+    ]));
+  }
+  function restoreRumorLock() {
+    if (rumorLock) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(RUMOR_LOCK_KEY) || 'null');
+      if (stored?.day !== rumorDayKey() || !stored?.data ||
+          !['Сайт','Telegram','Ручной ввод'].includes(stored?.source)) return;
+      const data = emptyRumors();
+      for (const name of CITIES) {
+        const points = stored.data[name];
+        if (!Array.isArray(points)) continue;
+        data.set(name,points.slice(0,3).map(p => ({
+          x:Number(p.x),y:Number(p.y),key:Number(p.x)+':'+Number(p.y)
+        })));
+      }
+      if (!rumorValid(data, stored.source === 'Ручной ввод' ? 1 : 8)) return;
+      rumorLock = {day:stored.day,source:stored.source};
+      rumors = data;
+      loadState = 'Слухи: ' + stored.source + ' (сохранённый выбор)';
+      highlight();
+    } catch {}
+  }
+  function acceptRumorSource(data,source,day,manual = false) {
+    if (day !== rumorDayKey() || (!manual && rumorLock?.day === day)) return false;
+    if (!rumorValid(data,manual ? 1 : 8)) return false;
+    // Зафиксируем до обновления карты: следующий ответ сети не заменит первый.
+    rumorLock = {day,source};
     clearHighlight();
-    rumors = next;
-
-    loadState = `Загружено координат: ${count}`;
-
+    rumors = data;
+    loadState = 'Слухи: ' + source + ', выбраны первыми (до 15:00 МСК)';
+    try {
+      localStorage.setItem(RUMOR_LOCK_KEY,JSON.stringify({
+        day,source,data:serializeRumors(data)
+      }));
+    } catch {}
     highlight();
     renderStatus();
+    return true;
+  }
+  function expireRumorLock() {
+    const day = rumorDayKey();
+    if (rumorLock && rumorLock.day !== day) {
+      rumorLock = null;
+      rumors = emptyRumors();
+      clearHighlight();
+      loadState = 'Новый игровой день: ожидаю свежие слухи';
+      try { localStorage.removeItem(RUMOR_LOCK_KEY); } catch {}
+    }
+  }
+  function useRumors(text) {
+    const data = parseRumors(rumorPlainText(text));
+    if (!acceptRumorSource(data,'Ручной ввод',rumorDayKey(),true))
+      throw Error('В ручном вводе нет трёх координат одного города');
   }
 
   // ===== СЕТЕВЫЕ ЗАПРОСЫ =====
@@ -1343,30 +1404,54 @@
   }
 
   async function loadRumors() {
+    expireRumorLock();
+    restoreRumorLock();
     if (loadingRumors) return;
+    if (rumorLock?.day === rumorDayKey()) {
+      loadState = 'Слухи закреплены: ' + rumorLock.source + ' (до 15:00 МСК)';
+      renderStatus();
+      return;
+    }
 
     loadingRumors = true;
-    loadState = 'Загрузка слухов...';
+    rumorLastPoll = Date.now();
+    const day = rumorDayKey();
+    const errors = [];
+    loadState = 'Ищу свежие слухи: сайт и Telegram…';
     renderStatus();
 
+    const tasks = [
+      request(RUMOR_URL + '?t=' + Date.now()).then(html => {
+        if (siteRumorDay(html) !== day) {
+          errors.push('Сайт: дата слухов не сегодняшняя');
+          return;
+        }
+        const data = parseRumors(rumorPlainText(html));
+        if (!acceptRumorSource(data,'Сайт',day))
+          errors.push('Сайт: координаты отсутствуют или уже выбран источник');
+      }).catch(error => errors.push('Сайт: ' + error.message)),
+      request(TELEGRAM_URL + '?t=' + Date.now()).then(html => {
+        const data = telegramRumorDataset(html,day);
+        if (!data) {
+          errors.push('Telegram: свежий пост пока не найден');
+          return;
+        }
+        acceptRumorSource(data,'Telegram',day);
+      }).catch(error => errors.push('Telegram: ' + error.message))
+    ];
     try {
-      const html = await request(
-        RUMOR_URL + '?t=' + Date.now()
-      );
-
-      useRumors(html);
-
-    } catch (error) {
-      loadState =
-        'Ошибка загрузки слухов: ' + error.message;
-      renderStatus();
-
+      await Promise.all(tasks);
+      if (!rumorLock && day === rumorDayKey()) {
+        loadState = 'Свежих слухов пока нет. ' +
+          errors.filter(x => !x.includes('уже выбран')).join('; ');
+        renderStatus();
+      }
     } finally {
       loadingRumors = false;
     }
   }
 
-  $('refresh').onclick = loadRumors;
+  $('refresh').onclick = () => loadRumors();
 
   $('apply').onclick = () => {
     try {
@@ -1810,7 +1895,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.12.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.13.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2040,7 +2125,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.12.0',
+      version: '3.13.0',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2472,6 +2557,11 @@
       highlight();
     }
 
+    expireRumorLock();
+    if (!rumorLock && !loadingRumors &&
+        Date.now() - rumorLastPoll > RUMOR_POLL_MS &&
+        document.visibilityState === 'visible') loadRumors();
+
     const currentDay = new Date().toDateString();
 
     if (currentDay !== lastCouponDay) {
@@ -2484,6 +2574,7 @@
   }, 1000);
 
   if (isIPhone) iphoneInitBridge();
+  restoreRumorLock();
   renderStatus();
   loadRumors();
   loadCoupons();
