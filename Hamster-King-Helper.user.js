@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.14.1
+// @version      3.14.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.14.1</span>
+      <span>🐹 Hamster King Helper v3.14.2</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1528,17 +1528,20 @@
   const PUZZLE_ACK_SESSION_MS = 45 * 60 * 1000;
   let puzzleAckUntil = 0;
   let puzzleAckLastButton = null;
+  let puzzleAckLastContext = '';
   let puzzleAckCount = 0;
 
   function puzzleAckStop() {
     puzzleAckUntil = 0;
     puzzleAckLastButton = null;
+    puzzleAckLastContext = '';
     $('puzzleAckStatus').classList.add('hidden');
   }
   function puzzleAckArm() {
     if (!uiSettings.puzzle || !uiSettings.autoPuzzleAck) return;
     puzzleAckUntil = Date.now() + PUZZLE_ACK_SESSION_MS;
     puzzleAckLastButton = null;
+    puzzleAckLastContext = '';
     puzzleAckCount = 0;
     $('puzzleAckStatus').textContent =
       '🧩 Авто «Понятно» включено на время пазла';
@@ -1561,44 +1564,85 @@
       style.pointerEvents !== 'none' && style.opacity !== '0';
   }
   function puzzleAckInUnrelatedWindow(node) {
-    // Контекст только близких предков: общий текст всей карты
-    // не должен мешать подтверждениям в разных локациях.
+    // Исключаем чужие окна по близкому окружению кнопки, не по
+    // названию игровой локации и не по тексту всей страницы.
     let parent = node.parentElement;
-    for (let depth = 0; parent && depth < 6; depth++, parent = parent.parentElement) {
+    for (let depth = 0; parent && depth < 7; depth++, parent = parent.parentElement) {
+      if (parent === document.body || parent === document.documentElement) break;
+      const rect = parent.getBoundingClientRect();
+      // Глобальная обёртка игры не является диалогом.
+      if (rect.width >= innerWidth * .95 && rect.height >= innerHeight * .85) break;
       const text = puzzleAckText(parent);
       if (text.length > 900) break;
-      if (/ежедневный подарок|магазин|платн|купить|оплатить|пополнить|сделка стратега|доля капо|выбор босса/i.test(text))
+      if (/ежедневный подарок|подарки|покупк|купить|оплатить|пополнить|магазин|vip\s*30|₽|usdt|сделка стратега|доля капо|выбор босса/i.test(text))
         return true;
     }
     return false;
   }
+  // Отбираем самый внутренний элемент с точным текстом «Понятно».
+  // Настоящая кнопка может быть как button, так и div/span без class=button.
+  // Клик по внутренней подписи всплывает в родительский React-обработчик.
   function puzzleAckFindButton() {
     const nodes = document.querySelectorAll(
-      'button,[role="button"],[class*="button"],[class*="Button"]'
+      'button,[role="button"],div,span,p,a,input[type="button"],input[type="submit"]'
     );
-    const matches = [];
+    const matched = [];
     for (const node of nodes) {
       if (puzzleAckText(node) !== 'понятно' ||
+          [...node.children].some(child => puzzleAckText(child) === 'понятно') ||
           !puzzleAckVisible(node) ||
           puzzleAckInUnrelatedWindow(node)) continue;
       const rect = node.getBoundingClientRect();
       const hit = document.elementFromPoint(
         rect.left + rect.width / 2, rect.top + rect.height / 2
       );
-      if (!hit || !node.contains(hit)) continue;
-      matches.push(node);
+      if (!hit || !(node === hit || node.contains(hit) ||
+          (hit !== document.body && hit !== document.documentElement &&
+           hit.contains(node)))) continue;
+      const target = hit.closest('button,[role="button"],a,[onclick]') || hit;
+      if (!puzzleAckVisible(target)) continue;
+      // На одной кнопке могут совпасть несколько текстовых обёрток.
+      if (!matched.some(item => item.node === target)) {
+        matched.push({node:target,label:node});
+      }
     }
-    // Сначала настоящая кнопка; вложенные span/div — лишь её подпись.
-    const clickable = matches.filter(node =>
-      node.matches('button,[role="button"]')
-    );
-    if (clickable.length === 1) return clickable[0];
-    if (clickable.length > 1) return null;
-    // Запасной вариант: игра может использовать div вместо button.
-    const deepest = matches.filter(node =>
-      !matches.some(child => child !== node && node.contains(child))
-    );
-    return deepest.length === 1 ? deepest[0] : null;
+    return matched.length === 1 ? matched[0] : null;
+  }
+  function puzzleAckContext(label) {
+    let parent = label.parentElement;
+    for (let depth = 0; parent && depth < 7; depth++, parent = parent.parentElement) {
+      const rect = parent.getBoundingClientRect();
+      if (rect.width >= innerWidth * .95 && rect.height >= innerHeight * .85) break;
+      const text = puzzleAckText(parent);
+      // Название награды не задано: любое содержимое окна,
+      // где есть ещё хотя бы один текстовый элемент помимо кнопки.
+      if (text.length >= 14 && text.length <= 280 &&
+          text.includes('понятно')) return text;
+    }
+    return 'понятно';
+  }
+  function puzzleAckDispatchClick(target) {
+    const rect = target.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    // Ранее игра не всегда реагировала на один .click().
+    // Отправляем обычную последовательность событий указателя
+    // на уже проверенный видимый элемент, не на координаты вслепую.
+    const common = {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0};
+    if (typeof PointerEvent === 'function') {
+      target.dispatchEvent(new PointerEvent('pointerdown',{
+        ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:1
+      }));
+    }
+    target.dispatchEvent(new MouseEvent('mousedown',{...common,buttons:1}));
+    if (typeof PointerEvent === 'function') {
+      target.dispatchEvent(new PointerEvent('pointerup',{
+        ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:0
+      }));
+    }
+    target.dispatchEvent(new MouseEvent('mouseup',{...common,buttons:0}));
+    if (typeof target.click === 'function') target.click();
+    else target.dispatchEvent(new MouseEvent('click',{...common,buttons:0}));
   }
   function puzzleAckTick() {
     if (!puzzleAckUntil || !uiSettings.autoPuzzleAck || !uiSettings.puzzle) return;
@@ -1607,19 +1651,21 @@
       return;
     }
     if (document.visibilityState !== 'visible') return;
-    // Подарки обрабатываются собственной подтверждающей логикой.
-    if (giftFlowActive) return;
-    if (puzzleAckLastButton && !puzzleAckVisible(puzzleAckLastButton))
-      puzzleAckLastButton = null;
-    if (puzzleAckLastButton && puzzleAckText(puzzleAckLastButton) !== 'понятно')
-      puzzleAckLastButton = null;
+    // Флаг giftFlowActive может остаться от предыдущего сбора.
+    // Он не должен навсегда блокировать подтверждения в пазле.
+    if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
 
     try {
-      const button = puzzleAckFindButton();
-      if (!button || button === puzzleAckLastButton) return;
-      // Помечаем до клика: не нажмём повторно в неизменившемся окне.
+      const match = puzzleAckFindButton();
+      if (!match) return;
+      const button = match.node;
+      const context = puzzleAckContext(match.label);
+      if (button === puzzleAckLastButton && context === puzzleAckLastContext)
+        return;
+      // Не повторяем клик, пока всё то же окно остаётся видимым.
       puzzleAckLastButton = button;
-      button.click();
+      puzzleAckLastContext = context;
+      puzzleAckDispatchClick(button);
       puzzleAckCount++;
       $('puzzleAckStatus').textContent =
         '🧩 Пазл: «Понятно» нажато ' + puzzleAckCount + ' раз';
@@ -2049,7 +2095,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.14.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.14.2',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2279,7 +2325,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.14.1',
+      version: '3.14.2',
       time: new Date().toISOString(),
       url: location.href,
       step,
