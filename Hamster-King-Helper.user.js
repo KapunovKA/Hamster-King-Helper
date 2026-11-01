@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.13.0
+// @version      3.13.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -364,7 +364,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.13.0</span>
+      <span>🐹 Hamster King Helper v3.13.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1288,7 +1288,12 @@
       if (!body || !time) continue;
       const timestamp = Date.parse(time.getAttribute('datetime') || '');
       if (!Number.isFinite(timestamp) || rumorDayKey(timestamp) !== day) continue;
-      const text = body.innerText || body.textContent || '';
+      // В DOMParser на iPhone innerText может не сохранять переносы <br>.
+      // Создаём текст с явными переносами между строками городов.
+      const content = body.cloneNode(true);
+      content.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+      content.querySelectorAll('p,div').forEach(el => el.append('\n'));
+      const text = content.textContent || '';
       if (!/hamster\s*king/i.test(text) || !/слух/i.test(text)) continue;
       const parsed = parseRumors(text);
       if (!rumorValid(parsed)) continue;
@@ -1895,7 +1900,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.13.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.13.1',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2125,7 +2130,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.13.0',
+      version: '3.13.1',
       time: new Date().toISOString(),
       url: location.href,
       step,
