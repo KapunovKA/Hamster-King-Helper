@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.14.0
+// @version      3.14.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.14.0</span>
+      <span>🐹 Hamster King Helper v3.14.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1580,7 +1580,6 @@
     for (const node of nodes) {
       if (puzzleAckText(node) !== 'понятно' ||
           !puzzleAckVisible(node) ||
-          [...node.children].some(child => puzzleAckText(child) === 'понятно') ||
           puzzleAckInUnrelatedWindow(node)) continue;
       const rect = node.getBoundingClientRect();
       const hit = document.elementFromPoint(
@@ -1588,9 +1587,18 @@
       );
       if (!hit || !node.contains(hit)) continue;
       matches.push(node);
-      if (matches.length > 1) return null;
     }
-    return matches[0] || null;
+    // Сначала настоящая кнопка; вложенные span/div — лишь её подпись.
+    const clickable = matches.filter(node =>
+      node.matches('button,[role="button"]')
+    );
+    if (clickable.length === 1) return clickable[0];
+    if (clickable.length > 1) return null;
+    // Запасной вариант: игра может использовать div вместо button.
+    const deepest = matches.filter(node =>
+      !matches.some(child => child !== node && node.contains(child))
+    );
+    return deepest.length === 1 ? deepest[0] : null;
   }
   function puzzleAckTick() {
     if (!puzzleAckUntil || !uiSettings.autoPuzzleAck || !uiSettings.puzzle) return;
@@ -2041,7 +2049,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.14.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.14.1',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2271,7 +2279,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.14.0',
+      version: '3.14.1',
       time: new Date().toISOString(),
       url: location.href,
       step,
