@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.15.0
+// @version      3.15.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.15.0</span>
+      <span>🐹 Hamster King Helper v3.15.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -1813,8 +1813,9 @@
       return;
     }
     puzzleActionMissingTicks = 0;
-    if (puzzleActionUsed && puzzleActionLastDialog === match.dialog &&
-        puzzleActionLastTitle === match.title) return;
+    // Даже если React заменил весь DOM диалога, не повторяем расход
+    // мечей для той же карточки до её закрытия.
+    if (puzzleActionUsed && puzzleActionLastTitle === match.title) return;
     // Помечаем ДО клика; отсутствие ответа игры не вызовет
     // повторного расхода мечей на этом же окне.
     puzzleActionUsed = true;
@@ -2256,7 +2257,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.15.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.15.1',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2486,7 +2487,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.15.0',
+      version: '3.15.1',
       time: new Date().toISOString(),
       url: location.href,
       step,
