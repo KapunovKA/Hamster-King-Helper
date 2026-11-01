@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.10.1
+// @version      3.11.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -58,8 +58,12 @@
 
   // ===== ИНТЕРФЕЙС =====
 
+  // iPhone получает интерфейс нижней панели; Mac и другие устройства
+  // сохраняют прежнюю компактную плавающую панель без изменений.
+  const isIPhone = /iPhone|iPod/i.test(navigator.userAgent);
   const host = document.createElement('div');
   host.id = HOST;
+  if (isIPhone) host.classList.add('hk-iphone');
 
   Object.assign(host.style, {
     position: 'fixed',
@@ -68,6 +72,19 @@
     zIndex: '2147483647',
     touchAction: 'manipulation'
   });
+  if (isIPhone) {
+    // Дочерние фиксированные элементы сами управляют кликами.
+    // Свободная область экрана по-прежнему доступна игре.
+    Object.assign(host.style, {
+      top: 'auto',
+      right: '0',
+      bottom: '0',
+      left: '0',
+      width: '100%',
+      height: '0',
+      pointerEvents: 'none'
+    });
+  }
 
   document.documentElement.appendChild(host);
   const root = host.attachShadow({ mode: 'open' });
@@ -241,13 +258,113 @@
     .chest-tool-buttons .btn { width:100%; margin:0; padding:7px 5px; font-size:11px; }
     .chest-tool-buttons .btn:last-child { grid-column:1/-1; }
     @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
+
+    /* Только iPhone: нижняя выдвижная панель, удобная для касаний.
+       Desktop-стили выше остаются неизменными. */
+    .mobile-backdrop { display:none; }
+    :host(.hk-iphone) .mobile-backdrop:not(.hidden) {
+      display:block;
+      position:fixed;
+      inset:0;
+      background:rgba(8,12,22,.55);
+      z-index:1;
+      pointer-events:auto;
+    }
+    :host(.hk-iphone) .mini {
+      position:fixed;
+      right:max(14px, env(safe-area-inset-right, 0px));
+      bottom:calc(14px + env(safe-area-inset-bottom, 0px));
+      z-index:3;
+      min-width:58px;
+      min-height:58px;
+      border-radius:20px;
+      font-size:25px;
+      padding:10px;
+      pointer-events:auto;
+    }
+    :host(.hk-iphone) .panel {
+      position:fixed;
+      left:50%;
+      right:auto;
+      bottom:0;
+      top:auto;
+      transform:translateX(-50%);
+      z-index:2;
+      width:100%;
+      max-width:540px;
+      max-height:82vh;
+      max-height:82dvh;
+      overflow-y:auto;
+      overscroll-behavior:contain;
+      -webkit-overflow-scrolling:touch;
+      border-radius:22px 22px 0 0;
+      padding:17px 15px max(20px, env(safe-area-inset-bottom, 0px));
+      box-shadow:0 -12px 45px #000b;
+      pointer-events:auto;
+    }
+    :host(.hk-iphone) .panel::before {
+      content:'';
+      display:block;
+      width:40px;
+      height:4px;
+      margin:0 auto 12px;
+      border-radius:8px;
+      background:#77849a;
+    }
+    :host(.hk-iphone) .head {
+      position:sticky;
+      top:-17px;
+      z-index:1;
+      margin:-4px -3px 12px;
+      padding:8px 3px 11px;
+      background:#171d2b;
+      font-size:14px;
+    }
+    :host(.hk-iphone) .head-actions button {
+      min-height:44px;
+      min-width:44px;
+      font-size:17px;
+    }
+    :host(.hk-iphone) .dashboard-grid {
+      grid-template-columns:minmax(0,1fr);
+      gap:10px;
+    }
+    :host(.hk-iphone) .dash-card { padding:13px; }
+    :host(.hk-iphone) .dash-title { font-size:15px; }
+    :host(.hk-iphone) .dash-card .small {
+      min-height:0;
+      max-height:none;
+      font-size:12px;
+    }
+    :host(.hk-iphone) .btn,
+    :host(.hk-iphone) .dash-card .btn,
+    :host(.hk-iphone) .dash-details .btn {
+      display:block;
+      width:100%;
+      min-height:44px;
+      padding:11px 12px;
+      font-size:14px;
+      text-align:center;
+    }
+    :host(.hk-iphone) .dash-actions {
+      grid-template-columns:minmax(0,1fr);
+      gap:8px;
+    }
+    :host(.hk-iphone) .dash-actions .btn { min-height:46px; }
+    :host(.hk-iphone) .dash-city select,
+    :host(.hk-iphone) textarea { font-size:16px; min-height:44px; }
+    :host(.hk-iphone) .setting-row { min-height:44px; font-size:14px; }
+    :host(.hk-iphone) .setting-row input { width:21px; height:21px; }
+    :host(.hk-iphone) .chest-tool-buttons { grid-template-columns:minmax(0,1fr); }
+    :host(.hk-iphone) .chest-tool-buttons .btn:last-child { grid-column:auto; }
   </style>
 
-  <button id="mini" class="mini">🐹</button>
+  <button id="mini" class="mini" aria-label="Открыть Hamster King Helper">🐹</button>
+  <div id="mobileBackdrop" class="mobile-backdrop hidden" aria-hidden="true"></div>
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.10.1</span>
+      <span>🐹 Hamster King Helper v3.11.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -349,14 +466,21 @@
     $('city').appendChild(option);
   }
 
-  $('mini').onclick = () => {
+  function openHelperPanel() {
     $('mini').classList.add('hidden');
-    $('panel').classList.remove('hidden');  };
+    $('panel').classList.remove('hidden');
+    if (isIPhone) $('mobileBackdrop').classList.remove('hidden');
+  }
 
-  $('close').onclick = () => {
+  function closeHelperPanel() {
     $('panel').classList.add('hidden');
     $('mini').classList.remove('hidden');
-  };
+    $('mobileBackdrop').classList.add('hidden');
+  }
+
+  $('mini').onclick = openHelperPanel;
+  $('close').onclick = closeHelperPanel;
+  $('mobileBackdrop').onclick = closeHelperPanel;
 
   // ===== НАСТРОЙКИ ИНТЕРФЕЙСА =====
 
@@ -1444,8 +1568,7 @@
     const stop = () => { finish(); };
     chestTapCapture = {stop};
     types.forEach(type => container.addEventListener(type,handler,true));
-    $('panel').classList.add('hidden');
-    $('mini').classList.remove('hidden');
+    closeHelperPanel();
     chestScanStatus('Режим записи: нажми один сундук вручную. Затем открой помощник и скопируй отчёт.');
     setTimeout(() => { if (!finished) finish(); },20000);
   };
@@ -1457,7 +1580,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.10.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.11.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -1524,8 +1647,7 @@
       chestTestBusy = true;
       const id = feature.properties.buildingId;
       chestTestNote('Проверяю открытие '+id+'…');
-      $('panel').classList.add('hidden');
-      $('mini').classList.remove('hidden');
+      closeHelperPanel();
       chestTestNote('Подготовка события',{stage:'event-construction'});
       // Safari в контексте Userscripts/Tampermonkey может отвергать
       // view:window при конструировании MouseEvent (TypeError).
@@ -1688,7 +1810,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.10.1',
+      version: '3.11.0',
       time: new Date().toISOString(),
       url: location.href,
       step,
