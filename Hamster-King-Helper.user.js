@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.14.3
+// @version      3.15.0
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.14.3</span>
+      <span>🐹 Hamster King Helper v3.15.0</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -393,6 +393,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автоматически собирать сундуки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAck"> 🧩 Пазл: автоматически нажимать «Понятно»</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> ⚔️ Пазл: нажимать кнопку боя в карточках противников (расходует мечи)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -511,7 +512,8 @@
     showRumors: true,
     autoGifts: false,
     autoChests: false,
-    autoPuzzleAck: true
+    autoPuzzleAck: true,
+    autoPuzzleAction: true
   };
 
   let uiSettings = { ...DEFAULT_SETTINGS };
@@ -570,8 +572,12 @@
         updateChestAutoToggle();
         if (uiSettings.autoChests) setTimeout(chestAutoTick, 100);
       }
-      if ((input.dataset.setting === 'autoPuzzleAck' && !uiSettings.autoPuzzleAck) ||
-          (input.dataset.setting === 'puzzle' && !uiSettings.puzzle)) {
+      if ((input.dataset.setting === 'autoPuzzleAck' ||
+           input.dataset.setting === 'autoPuzzleAction') &&
+          !uiSettings.autoPuzzleAck && !uiSettings.autoPuzzleAction) {
+        puzzleAckStop();
+      }
+      if (input.dataset.setting === 'puzzle' && !uiSettings.puzzle) {
         puzzleAckStop();
       }
     });
@@ -1530,21 +1536,40 @@
   let puzzleAckLastButton = null;
   let puzzleAckLastContext = '';
   let puzzleAckCount = 0;
+  let puzzleActionLastDialog = null;
+  let puzzleActionLastTitle = '';
+  let puzzleActionUsed = false;
+  let puzzleActionMissingTicks = 0;
+  let puzzleActionCount = 0;
 
   function puzzleAckStop() {
     puzzleAckUntil = 0;
     puzzleAckLastButton = null;
     puzzleAckLastContext = '';
+    puzzleActionLastDialog = null;
+    puzzleActionLastTitle = '';
+    puzzleActionUsed = false;
+    puzzleActionMissingTicks = 0;
     $('puzzleAckStatus').classList.add('hidden');
   }
   function puzzleAckArm() {
-    if (!uiSettings.puzzle || !uiSettings.autoPuzzleAck) return;
+    if (!uiSettings.puzzle ||
+        (!uiSettings.autoPuzzleAck && !uiSettings.autoPuzzleAction)) return;
     puzzleAckUntil = Date.now() + PUZZLE_ACK_SESSION_MS;
     puzzleAckLastButton = null;
     puzzleAckLastContext = '';
     puzzleAckCount = 0;
+    puzzleActionLastDialog = null;
+    puzzleActionLastTitle = '';
+    puzzleActionUsed = false;
+    puzzleActionMissingTicks = 0;
+    puzzleActionCount = 0;
     $('puzzleAckStatus').textContent =
-      '🧩 Авто «Понятно» включено на время пазла';
+      '🧩 Пазл: ' +
+      [
+        uiSettings.autoPuzzleAck ? 'авто «Понятно»' : '',
+        uiSettings.autoPuzzleAction ? 'авто бой (тратит мечи)' : ''
+      ].filter(Boolean).join(' + ');
     $('puzzleAckStatus').classList.remove('hidden');
   }
   const puzzleAckText = node => String(
@@ -1677,7 +1702,140 @@
         '🧩 Не удалось нажать «Понятно»: ' + error.message;
     }
   }
-  setInterval(puzzleAckTick, 500);
+  // ===== ПАЗЛ: КНОПКА БОЯ В КАРТОЧКЕ ПРОТИВНИКА =====
+  // В отличие от «Понятно», это действие расходует игровые мечи.
+  // Нажимаем только в режиме пазла, включённом пользователем,
+  // и только в карточке с фразой «Можно отыскать/найти/встретить».
+  // Никаких платных предложений, магазинов или универсальных числовых кнопок.
+  const PUZZLE_ENEMY_MARKER = /^можно\s+(?:отыскать|найти|встретить)$/i;
+  const PUZZLE_ACTION_COST = /^(?:⚔\uFE0F?\s*|🗡\uFE0F?\s*)?(\d{1,5})$/u;
+  function puzzleActionEligibleCost(node) {
+    const text = puzzleAckText(node);
+    const match = text.match(PUZZLE_ACTION_COST);
+    return match ? Number(match[1]) : 0;
+  }
+  function puzzleActionButtonInDialog(dialog) {
+    const rect = dialog.getBoundingClientRect();
+    const actions = new Map();
+    const priceLabels = dialog.querySelectorAll(
+      'button,[role="button"],[class*="button"],[class*="Button"],div,span,strong'
+    );
+    for (const label of priceLabels) {
+      const cost = puzzleActionEligibleCost(label);
+      if (!cost || cost > 9999 || !puzzleAckVisible(label,true)) continue;
+      // Игнорируем вложенные числовые подписи: достаточно самого
+      // внутреннего элемента с числом, чтобы не дублировать результат.
+      if ([...label.children].some(child =>
+        puzzleActionEligibleCost(child) === cost)) continue;
+      let candidate = null;
+      let node = label;
+      // У игровых кнопок бывает не button, а div с вложенным значком
+      // меча и текстом стоимости.
+      for (let depth = 0; node && node !== dialog && depth < 5;
+           depth++, node = node.parentElement) {
+        const r = node.getBoundingClientRect();
+        if (r.width < 70 || r.height < 30 ||
+            r.width > rect.width * .85 ||
+            r.height > rect.height * .24) continue;
+        const cx = r.left + r.width/2;
+        const cy = r.top + r.height/2;
+        // Кнопка боя расположена в нижней центральной части модалки.
+        if (cy < rect.top + rect.height*.64 ||
+            Math.abs(cx - (rect.left+rect.width/2)) > rect.width*.28) continue;
+        if (!puzzleAckVisible(node)) continue;
+        const hit = document.elementFromPoint(cx,cy);
+        if (!hit || !(node === hit || node.contains(hit))) continue;
+        const hasButtonClass = /button|btn|fight|battle|attack|action/i.test(
+          String(node.className || '')
+        );
+        if (node.matches('button,[role="button"]') || hasButtonClass ||
+            node.querySelector('img,svg,[class*="icon"],[class*="Icon"]')) {
+          candidate = node;
+          break;
+        }
+        if (!candidate) candidate = node;
+      }
+      if (!candidate) continue;
+      if (!actions.has(candidate)) actions.set(candidate,cost);
+    }
+    // Не угадываем, если в окне обнаружено несколько разных действий.
+    return actions.size === 1
+      ? {button:[...actions.keys()][0],cost:[...actions.values()][0]}
+      : null;
+  }
+  function puzzleActionFindCard() {
+    const headings = document.querySelectorAll('h1,h2,h3,h4,h5,div,span,p,strong');
+    for (const heading of headings) {
+      if (!PUZZLE_ENEMY_MARKER.test(puzzleAckText(heading)) ||
+          !puzzleAckVisible(heading,true) ||
+          [...heading.children].some(c =>
+            PUZZLE_ENEMY_MARKER.test(puzzleAckText(c)))) continue;
+      let dialog = heading.parentElement;
+      for (let depth = 0; dialog && depth < 9;
+           depth++, dialog = dialog.parentElement) {
+        if (dialog === document.body || dialog === document.documentElement)
+          break;
+        const box = dialog.getBoundingClientRect();
+        if (box.width < 185 || box.height < 185 ||
+            box.height > innerHeight*1.1 ||
+            box.width > innerWidth*1.1) continue;
+        // Не ищем кнопки в общей оболочке игры.
+        if (box.width >= innerWidth*.98 && box.height >= innerHeight*.92)
+          break;
+        const text = puzzleAckText(dialog);
+        if (text.length < 55 || text.length > 2200) continue;
+        if (/покупк|купить|оплатить|пополнить|магазин|vip\s*30|₽|usdt|ежедневный подарок/i.test(text))
+          continue;
+        const match = puzzleActionButtonInDialog(dialog);
+        if (!match) continue;
+        const title = text.split(/можно\s+(?:отыскать|найти|встретить)/i)[0]
+          .slice(-100).trim();
+        return {...match,dialog,title:title || 'Карточка противника'};
+      }
+    }
+    return null;
+  }
+  function puzzleActionTick() {
+    if (!puzzleAckUntil || !uiSettings.puzzle || !uiSettings.autoPuzzleAction)
+      return;
+    if (Date.now() >= puzzleAckUntil) return;
+    if (document.visibilityState !== 'visible') return;
+    if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
+    const match = puzzleActionFindCard();
+    if (!match) {
+      // Новая карточка с тем же противником допустима после закрытия
+      // предыдущей: нужно хотя бы две проверки без окна между ними.
+      if (++puzzleActionMissingTicks >= 2) {
+        puzzleActionUsed = false;
+        puzzleActionLastDialog = null;
+        puzzleActionLastTitle = '';
+      }
+      return;
+    }
+    puzzleActionMissingTicks = 0;
+    if (puzzleActionUsed && puzzleActionLastDialog === match.dialog &&
+        puzzleActionLastTitle === match.title) return;
+    // Помечаем ДО клика; отсутствие ответа игры не вызовет
+    // повторного расхода мечей на этом же окне.
+    puzzleActionUsed = true;
+    puzzleActionLastDialog = match.dialog;
+    puzzleActionLastTitle = match.title;
+    try {
+      match.button.click();
+      puzzleActionCount++;
+      $('puzzleAckStatus').textContent =
+        '⚔️ Пазл: нажал кнопку боя (' + match.cost +
+        ' мечей); действий: ' + puzzleActionCount;
+    } catch (error) {
+      $('puzzleAckStatus').textContent =
+        '⚔️ Пазл: кнопку боя не удалось нажать: ' + error.message;
+    }
+  }
+
+  setInterval(() => {
+    puzzleAckTick();
+    puzzleActionTick();
+  },500);
 
   $('puzzle').onclick = () => {
     const solver = window.__HK_PUZZLE_SOLVER__;
@@ -2098,7 +2256,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.14.3',time:new Date().toISOString(),url:location.href,step};
+      version:'3.15.0',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2328,7 +2486,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.14.3',
+      version: '3.15.0',
       time: new Date().toISOString(),
       url: location.href,
       step,
