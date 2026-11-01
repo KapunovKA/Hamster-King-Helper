@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.0
+// @version      3.16.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.0</span>
+      <span>🐹 Hamster King Helper v3.16.1</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -2265,7 +2265,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.0',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.1',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2474,6 +2474,8 @@
   let chestAutoLastProbe = 0;
   let chestAutoRetryAfter = 0;
   let chestAutoLastMessage = '';
+  let chestAutoLastTickAt = 0;
+  let chestAutoLastTickGapMs = 0;
 
   function updateChestAutoToggle() {
     $('chestAutoToggle').textContent =
@@ -2495,11 +2497,14 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.16.0',
+      version: '3.16.1',
       time: new Date().toISOString(),
       url: location.href,
       step,
       phase: chestAutoPhase,
+      pageVisibility: document.visibilityState,
+      pageHasFocus: document.hasFocus(),
+      millisecondsSincePreviousTick: chestAutoLastTickGapMs,
       ...extra
     }, null, 2);
   }
@@ -2593,9 +2598,14 @@
 
   function chestAutoTick() {
     if (!uiSettings.autoChests) return;
-    if (document.visibilityState !== 'visible') return;
 
+    // Вкладка может быть скрыта при блокировке Windows или свёртывании
+    // Яндекс Браузера. Не останавливаем сбор лишь из-за hidden:
+    // браузер по-прежнему вправе сам ограничивать фоновые таймеры.
     const now = Date.now();
+    chestAutoLastTickGapMs = chestAutoLastTickAt
+      ? Math.max(0, now - chestAutoLastTickAt) : 0;
+    chestAutoLastTickAt = now;
     const remaining = chestAutoCooldownUntil() - now;
     if (remaining > 0) {
       chestAutoPhase = 'idle';
@@ -2687,12 +2697,24 @@
     if (uiSettings.autoChests) setTimeout(chestAutoTick,100);
   };
   updateChestAutoToggle();
+  // В фоне таймер может срабатывать реже: каждый фактический вызов
+  // всё равно проверяет доход. Это не обходит приостановку браузером.
   setInterval(chestAutoTick,2000);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && uiSettings.autoChests) {
-      setTimeout(chestAutoTick,200);
-    }
-  });
+
+  function chestAutoResumeCheck() {
+    if (!uiSettings.autoChests) return;
+    // После пробуждения, возврата вкладки или восстановления страницы
+    // не дожидаемся следующего 15-секундного сканирования маркеров.
+    // Постоянная 30-минутная защита от повторного получения сохраняется.
+    chestAutoLastProbe = 0;
+    setTimeout(chestAutoTick,100);
+  }
+  document.addEventListener('visibilitychange', chestAutoResumeCheck);
+  window.addEventListener('focus', chestAutoResumeCheck);
+  window.addEventListener('pageshow', chestAutoResumeCheck);
+  window.addEventListener('online', chestAutoResumeCheck);
+  // Chrome/Яндекс Браузер может замораживать вкладки по Page Lifecycle.
+  document.addEventListener('resume', chestAutoResumeCheck);
 
   $('chestScanRun').onclick = scanMapChests;
   $('chestScanCopy').onclick = () => {
