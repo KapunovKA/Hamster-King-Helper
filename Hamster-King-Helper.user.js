@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.8
+// @version      3.16.9
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -192,48 +192,16 @@
     .setting-row input { width: 17px; height: 17px; accent-color: #39d98a; flex: none; }
 
 
-    .coupon {
-      border: 1px solid #47526a;
-      border-radius: 8px;
-      padding: 9px;
-      margin-top: 8px;
-      background: #272d3d;
-    }
-
-    .coupon.today {
-      border: 2px solid #39d98a;
-      background: #17382d;
-      box-shadow: 0 0 12px rgba(57,217,138,.25);
-    }
-
-    .coupon-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .today-badge {
-      color: #39d98a;
-      font-size: 11px;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-
-    .code {
-      font-size: 17px;
-      font-weight: 700;
-      color: #b6eac1;
-      overflow-wrap: anywhere;
-      margin-top: 8px;
-    }
-
-    .link {
-      display: block;
-      color: #a8d8ff;
-      margin-top: 7px;
-      text-decoration: none;
-    }
+    #section-coupons-card { grid-column:1 / -1; }
+    .coupon-bar { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .coupon-bar .dash-title { margin:0; }
+    .coupon-refresh { background:#434c60; border-radius:6px; padding:3px 9px; font-size:17px; }
+    .coupon-codes { margin-top:4px; line-height:1.8; overflow-wrap:anywhere; }
+    .coupon-codes:empty { display:none; }
+    .coupon-code { background:none; padding:0 2px; color:#b6eac1; font-weight:700; user-select:all; -webkit-user-select:all; overflow-wrap:anywhere; }
+    .coupon-code:hover { text-decoration:underline; }
+    .coupon-code:focus-visible, .coupon-refresh:focus-visible { outline:2px solid #a8d8ff; outline-offset:2px; }
+    #couponStatus { min-height:0; max-height:none; margin-top:4px; }
 
     /* v3.8 compact dashboard */
     .panel { width:min(370px,calc(100vw - 16px)); max-height:78dvh; padding:12px; border-radius:18px; background:#171d2b; border-color:#52617c; box-shadow:0 12px 35px #000b; }
@@ -247,6 +215,7 @@
     .dash-card .btn { margin-top:7px; padding:6px 9px; width:auto; display:inline-block; font-size:11px; }
     .dash-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
     .dash-actions .btn { margin:0; font-size:12px; padding:10px 5px; }
+    .dash-actions > .btn:only-child { grid-column:1 / -1; }
     .dash-status { margin:10px 0 0; padding:9px 11px; border:1px solid #38465f; border-radius:11px; background:#202a3b; font-size:11px; }
     .dash-details { margin-top:9px; border:1px solid #38465f; border-radius:10px; background:#202a3b; padding:8px 10px; }
     .dash-details summary { font-size:12px; font-weight:600; }
@@ -364,6 +333,8 @@
     :host(.hk-iphone) textarea { font-size:16px; min-height:44px; }
     :host(.hk-iphone) .setting-row { min-height:44px; font-size:14px; }
     :host(.hk-iphone) .setting-row input { width:21px; height:21px; }
+    :host(.hk-iphone) .coupon-refresh { min-width:44px; min-height:44px; }
+    :host(.hk-iphone) .coupon-code { min-height:36px; font-size:15px; }
   </style>
 
   <button id="mini" class="mini" aria-label="Открыть Hamster King Helper">🐹</button>
@@ -382,7 +353,7 @@
       <div class="settings-title">⚙️ Что показывать в панели</div>
       <label class="setting-row"><input type="checkbox" data-setting="showGifts"> 🎁 Подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="showRumors"> 🗺️ Слухи</label>
-      <label class="setting-row"><input type="checkbox" data-setting="coupons"> 🎟️ Купоны Telegram и их кнопки</label>
+      <label class="setting-row"><input type="checkbox" data-setting="coupons"> 🎟️ Купоны Telegram</label>
       <label class="setting-row"><input type="checkbox" data-setting="puzzle"> 🧩 Кнопка пазла</label>
       <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
       <label class="setting-row"><input type="checkbox" data-setting="manual"> Ручной ввод слухов</label>
@@ -407,9 +378,12 @@
         <button id="refresh" class="btn">↻ Обновить</button>
       </div>
       <div id="section-coupons-card" class="dash-card">
-        <span class="dash-title">🎟️ Купоны Telegram</span>
-        <div id="couponSummary" class="small">Автопроверка каждые 30 минут</div>
-        <button id="couponOpen" class="btn">Открыть список</button>
+        <div class="coupon-bar">
+          <span class="dash-title">🎟️ Купоны</span>
+          <button id="couponRefresh" class="coupon-refresh" title="Проверить купоны" aria-label="Проверить купоны">↻</button>
+        </div>
+        <div id="coupons" class="coupon-codes" aria-label="Купоны — нажми на код, чтобы скопировать"></div>
+        <div id="couponStatus" class="small" role="status" aria-live="polite">Проверяю купоны…</div>
       </div>
     </div>
     <div id="status" class="dash-status good">Запуск...</div>
@@ -419,16 +393,9 @@
     </label>
     <div id="dashActions" class="dash-actions">
       <button id="puzzle" class="btn purple">🧩 Запустить пазл</button>
-      <button id="couponRefresh" class="btn">↻ Проверить купоны</button>
     </div>
     <div id="puzzleAckStatus" class="small hidden" aria-live="polite" style="margin-top:6px"></div>
     <div class="dash-secondary">
-      <details id="section-coupons" class="dash-details">
-        <summary>🎟️ Найденные купоны</summary>
-        <div id="couponStatus" class="block small">Ожидание...</div>
-        <div id="coupons"></div>
-        <a class="link" href="https://t.me/official_crypto_witch" target="_blank" rel="noopener noreferrer">Открыть @official_crypto_witch</a>
-      </details>
       <details id="section-diagnostics" class="dash-details">
         <summary>🛠️ Диагностика и служебные кнопки</summary>
         <div id="diag" class="block small"></div>
@@ -444,17 +411,6 @@
   `;
 
   const $ = id => root.getElementById(id);
-  $('couponOpen').onclick = () => {
-    if (!uiSettings.coupons) return;
-    const details = $('section-coupons');
-    details.open = !details.open;
-    if (details.open) details.scrollIntoView({block:'nearest',behavior:'smooth'});
-  };
-  const couponSummaryObserver = new MutationObserver(() => {
-    const value = $('couponStatus').textContent.trim().replace(/\s+/g,' ');
-    $('couponSummary').textContent = value.slice(0,75) || 'Автопроверка каждые 30 минут';
-  });
-  couponSummaryObserver.observe($('couponStatus'), {childList:true,characterData:true,subtree:true});
 
 
   for (const name of CITIES) {
@@ -511,11 +467,7 @@
     diagnostics: [$('section-diagnostics')],
     manual: [$('section-manual')],
     city: [$('section-city')],
-    coupons: [
-      $('section-coupons-card'),
-      $('section-coupons'),
-      $('couponRefresh')
-    ],
+    coupons: [$('section-coupons-card')],
     puzzle: [$('puzzle')],
     showGifts: [$('section-gifts')],
     showRumors: [$('section-rumors-card')]
@@ -529,7 +481,7 @@
     }
     // Если не осталось ни одной нижней кнопки, убираем и её контейнер.
     $('dashActions').classList.toggle(
-      'hidden', !uiSettings.puzzle && !uiSettings.coupons
+      'hidden', !uiSettings.puzzle
     );
     root.querySelectorAll('[data-setting]').forEach(input => {
       input.checked = uiSettings[input.dataset.setting];
@@ -1988,94 +1940,29 @@
     );
   }
 
-  function sameDay(a, b) {
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
-  }
-
   function renderCoupons() {
     const container = $('coupons');
     container.replaceChildren();
+    $('couponStatus').textContent = couponState.replace(/\s+/g,' ').trim();
+    $('couponRefresh').disabled = loadingCoupons;
 
-    $('couponStatus').textContent = couponState;
-
-    const today = new Date();
-
-    for (const item of couponItems) {
-      const dateValue = new Date(item.timestamp);
-      const isToday = sameDay(dateValue, today);
-
-      const card = document.createElement('div');
-      card.className =
-        isToday ? 'coupon today' : 'coupon';
-
-      const heading = document.createElement('div');
-      heading.className = 'coupon-head';
-
-      const date = document.createElement('div');
-      date.className = 'small';
-
-      date.textContent =
-        dateValue.toLocaleString('ru-RU', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-
-      heading.appendChild(date);
-
-      if (isToday) {
-        const badge = document.createElement('span');
-        badge.className = 'today-badge';
-        badge.textContent = '● СЕГОДНЯ';
-        heading.appendChild(badge);
-      }
-
-      const code = document.createElement('div');
-      code.className = 'code';
+    for (const [index, item] of couponItems.entries()) {
+      if (index) container.appendChild(document.createTextNode(', '));
+      const code = document.createElement('button');
+      code.type = 'button';
+      code.className = 'coupon-code';
       code.textContent = item.code;
-
-      const copy = document.createElement('button');
-      copy.className = 'btn';
-      copy.textContent = 'Скопировать';
-
-      copy.onclick = async () => {
+      code.title = 'Скопировать ' + item.code;
+      code.setAttribute('aria-label', 'Скопировать купон ' + item.code);
+      code.onclick = async () => {
         try {
           await navigator.clipboard.writeText(item.code);
-          copy.textContent = '✓ Скопировано';
+          $('couponStatus').textContent = '✓ Скопирован: ' + item.code;
         } catch {
-          const textarea =
-            document.createElement('textarea');
-
-          textarea.value = item.code;
-          root.appendChild(textarea);
-          textarea.select();
-
-          try {
-            document.execCommand('copy');
-            copy.textContent = '✓ Скопировано';
-          } catch {
-            copy.textContent = 'Выдели код вручную';
-          }
-
-          textarea.remove();
+          window.prompt('Скопируй купон:', item.code);
         }
       };
-
-      const link = document.createElement('a');
-      link.className = 'link';
-      link.href = item.link;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Открыть публикацию';
-
-      card.append(heading, code, copy, link);
-      container.appendChild(card);
+      container.appendChild(code);
     }
   }
 
