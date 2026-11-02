@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.5
+// @version      3.16.6
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      crypto-witch.ru
 // @connect      t.me
 // @updateURL    https://raw.githubusercontent.com/KapunovKA/Hamster-King-Helper/main/Hamster-King-Helper.user.js
@@ -1847,49 +1848,90 @@
     puzzleActionTick();
   },500);
 
-  $('puzzle').onclick = () => {
-    const solver = window.__HK_PUZZLE_SOLVER__;
+  function puzzleNote(text) {
+    $('puzzleAckStatus').textContent = '🧩 Пазл: ' + text;
+    $('puzzleAckStatus').classList.remove('hidden');
+  }
 
-    if (
-      solver &&
-      typeof solver.check === 'function'
-    ) {
-      puzzleAckArm();
-      try {
-        solver.check();
-      } catch (error) {
-        puzzleAckStop();
-        loadState =
-          'Ошибка пазла: ' + error.message;
-        renderStatus();
+  function puzzleSolver() {
+    // Внешний script работает в странице игры, а userscript с GM-грантами
+    // может работать в отдельном окружении Tampermonkey.
+    const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    for (const scope of [page, window]) {
+      const solver = scope.__HK_PUZZLE_SOLVER__;
+      if (solver && typeof solver.check === 'function') return solver;
+    }
+    return null;
+  }
+
+  $('puzzle').onclick = async () => {
+    if (puzzleLoading) return;
+
+    try {
+      const solver = puzzleSolver();
+      if (solver) {
+        puzzleAckArm();
+        puzzleNote('запускаю проверку игрового поля…');
+        await solver.check();
+        return;
       }
+    } catch (error) {
+      puzzleAckStop();
+      puzzleNote('ошибка запуска — ' + (error.message || String(error)));
       return;
     }
 
-    if (puzzleLoading) return;
-
-    puzzleAckArm();
     puzzleLoading = true;
     $('puzzle').textContent = '⏳ Загрузка...';
+    puzzleNote('загружаю модуль с tk-clan.ru…');
 
     const script = document.createElement('script');
-    script.src = PUZZLE_URL + '?' + Date.now();
-
-    script.onload = () => {
+    let settled = false;
+    let timer;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      script.onload = script.onerror = null;
+      script.remove();
       puzzleLoading = false;
       $('puzzle').textContent = '🧩 Запустить пазл';
+      if (error) {
+        puzzleAckStop();
+        puzzleNote(error);
+        return;
+      }
+      try {
+        if (!puzzleSolver()) {
+          puzzleAckStop();
+          puzzleNote('файл загружен, но модуль не запустился. ' +
+            'Возможна ошибка или изменение внешнего скрипта.');
+          return;
+        }
+        // Сохраняем прежний запуск через подключение внешнего script.
+        // Дополнительный check() здесь мог бы запустить решение дважды.
+        puzzleAckArm();
+        puzzleNote('модуль загружен. Если поле не решается, ' +
+          'нажми «Запустить пазл» ещё раз.');
+      } catch (error) {
+        puzzleAckStop();
+        puzzleNote('ошибка модуля — ' + (error.message || String(error)));
+      }
     };
 
-    script.onerror = () => {
-      puzzleLoading = false;
-      puzzleAckStop();
-      $('puzzle').textContent = '🧩 Запустить пазл';
-
-      loadState = 'Не удалось загрузить пазл';
-      renderStatus();
-    };
-
-    document.documentElement.appendChild(script);
+    timer = setTimeout(() => finish('модуль не ответил за 20 секунд. ' +
+      'Проверь доступ к tk-clan.ru и попробуй ещё раз.'), 20000);
+    script.onload = () => finish();
+    script.onerror = () => finish('не удалось загрузить модуль с tk-clan.ru. ' +
+      'Возможна блокировка браузером или недоступность сайта.');
+    try {
+      const nonce = document.querySelector('script[nonce]')?.nonce;
+      if (nonce) script.nonce = nonce;
+      script.src = PUZZLE_URL + '?' + Date.now();
+      document.documentElement.appendChild(script);
+    } catch (error) {
+      finish('ошибка загрузки — ' + (error.message || String(error)));
+    }
   };
 
   // ===== КУПОНЫ TELEGRAM =====
