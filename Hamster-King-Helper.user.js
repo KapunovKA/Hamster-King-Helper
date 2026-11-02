@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.1
+// @version      3.16.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.1</span>
+      <span>🐹 Hamster King Helper v3.16.2</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -446,6 +446,7 @@
           <div class="chest-tool-buttons">
             <button id="chestScanRun" class="btn">🔎 Найти</button>
             <button id="chestScanCopy" class="btn">📋 Отчёт</button>
+            <button id="giftScanCopy" class="btn" title="Проверка кнопок подарков без данных аккаунта">🎁 Отчёт подарков</button>
             <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
             <button id="chestCollectTest" class="btn purple" title="Однократно нажимает СОБРАТЬ только в подтверждённом окне дохода">💰 Собрать (тест)</button>
             <button id="chestTapRecord" class="btn" title="Записывает одно ручное нажатие на карту">🎯 Записать нажатие</button>
@@ -2265,7 +2266,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.1',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.2',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2497,7 +2498,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.16.1',
+      version: '3.16.2',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2755,14 +2756,18 @@
     giftAwaitingChanges.add(button);
   }
   const giftStatus = message => { $('giftStatus').textContent = message; };
-  const giftVisible = element => {
+  // Подписи React иногда имеют pointer-events:none: они всё равно
+  // видимы. Для кнопок требуем реальную возможность нажатия.
+  const giftVisible = (element, allowText = false) => {
     if (!element || !element.isConnected) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     return rect.width > 3 && rect.height > 3 &&
       rect.bottom > 0 && rect.top < innerHeight &&
+      rect.right > 0 && rect.left < innerWidth &&
       style.display !== 'none' && style.visibility !== 'hidden' &&
-      style.pointerEvents !== 'none';
+      style.opacity !== '0' &&
+      (allowText || style.pointerEvents !== 'none');
   };
   const giftText = element => (element?.innerText || element?.textContent || '')
     .replace(/\s+/g, ' ').trim().toLowerCase();
@@ -2780,14 +2785,22 @@
     return null;
   }
   function giftShopOpen() {
-    // Наличие видимого заголовка магазина и ежедневного подарка.
+    // Яндекс Браузер: заголовки магазина могут иметь pointer-events:none.
     return Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p'))
-      .some(el => el.children.length < 4 && giftVisible(el) &&
+      .some(el => el.children.length < 4 && giftVisible(el,true) &&
         /ежедневный подарок/i.test(giftText(el)) && giftText(el).length < 90);
   }
   function giftCandidate() {
     if (!giftShopOpen()) return null;
-    const buttons = Array.from(document.querySelectorAll('button,[role="button"]'));
+    const buttons = Array.from(document.querySelectorAll(
+      'button,[role="button"],[class*="button"],[class*="Button"]'
+    )).filter(element => {
+      if (element.matches('button,[role="button"]')) return true;
+      if (element.closest('button,[role="button"]')) return false;
+      // Не выбирать обёртку вокруг настоящей кнопки с тем же названием.
+      return ![...element.querySelectorAll('button,[role="button"]')]
+        .some(child => giftText(child) === giftText(element));
+    });
     for (const button of buttons) {
       if (!giftVisible(button) || button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
       const label = giftText(button);
@@ -2816,7 +2829,7 @@
     // Таймер ещё может отображаться вместо кнопки «Пропустить».
     // Не нажимаем на награды под открытым платным предложением.
     return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
-      .some(el => el.children.length < 4 && giftVisible(el) &&
+      .some(el => el.children.length < 4 && giftVisible(el,true) &&
         /сделка стратега|доля капо|выбор босса/i.test(giftText(el)) &&
         giftText(el).length < 90);
   }
@@ -2837,11 +2850,23 @@
     const hit = document.elementFromPoint(x, y);
     if (!hit || (!target.contains(hit) && !hit.contains(target))) return false;
     const actual = hit.closest('button,[role="button"],a') || hit;
-    actual.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, clientX:x, clientY:y, pointerId:1, pointerType:'mouse', isPrimary:true}));
-    actual.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:0}));
-    actual.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, cancelable:true, clientX:x, clientY:y, pointerId:1, pointerType:'mouse', isPrimary:true}));
-    actual.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:0}));
-    actual.click();
+    // PointerEvent может отсутствовать в окружениях расширения.
+    // В этом случае обычный click всё равно выполняется.
+    const common = {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0};
+    if (typeof PointerEvent === 'function') {
+      actual.dispatchEvent(new PointerEvent('pointerdown',{
+        ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:1
+      }));
+    }
+    actual.dispatchEvent(new MouseEvent('mousedown',{...common,buttons:1}));
+    if (typeof PointerEvent === 'function') {
+      actual.dispatchEvent(new PointerEvent('pointerup',{
+        ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:0
+      }));
+    }
+    actual.dispatchEvent(new MouseEvent('mouseup',{...common,buttons:0}));
+    if (typeof actual.click === 'function') actual.click();
+    else actual.dispatchEvent(new MouseEvent('click',{...common,buttons:0}));
     return true;
   }
   function advanceGiftOffer() {
@@ -2869,10 +2894,10 @@
   // Не закрываем посторонние диалоги и не нажимаем платные предложения.
   function confirmReceivedGift() {
     const heading = Array.from(document.querySelectorAll('div,span,h1,h2,h3,h4'))
-      .find(el => el.children.length < 4 && giftVisible(el) &&
+      .find(el => el.children.length < 4 && giftVisible(el,true) &&
         /ежедневный подарок/i.test(giftText(el)) && giftText(el).length < 80);
     const received = Array.from(document.querySelectorAll('div,span,p'))
-      .find(el => el.children.length < 4 && giftVisible(el) &&
+      .find(el => el.children.length < 4 && giftVisible(el,true) &&
         /поздравляем,? получено/i.test(giftText(el)) && giftText(el).length < 100);
     if (!heading || !received) return false;
     const target = Array.from(document.querySelectorAll('button,[role="button"],div,span'))
@@ -2899,14 +2924,15 @@
 
   async function collectGifts(manual = false) {
     if (giftBusy) return;
-    if (manual) giftManualUntil = Date.now() + 90000;
+    // Достаточно времени на всю цепочку при замедленных фоновых таймерах.
+    if (manual) giftManualUntil = Date.now() + 15 * 60 * 1000;
     if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil && !giftFlowActive) return;
     // Освобождаем кнопку только после изменения текста или удаления из DOM.
     giftObserveButtonChanges();
     if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
     if (!giftShopOpen()) {
-      if (manual) giftStatus('Открой «Магазин» → «Ежедневный подарок» и повтори.');
+      giftStatus('Ожидаю открытый магазин: «Ежедневный подарок».');
       return;
     }
     if (giftClicks >= 30) {
@@ -2915,8 +2941,15 @@
     }
     const button = giftCandidate();
     if (!button) {
-      // Остаёмся в режиме ожидания, пока не исчезнет таймер.
-      giftStatus('Ожидаю кнопку «Получить» без таймера…');
+      // Сообщаем, когда таймер ещё идёт, или когда разметка отличается.
+      const labels = [...document.querySelectorAll(
+        'button,[role="button"],[class*="button"],[class*="Button"]'
+      )].filter(x => giftVisible(x,true)).map(giftText).filter(x =>
+        /получить|таймер|^\d{1,2}:\d{2}(?::\d{2})?$/.test(x)
+      ).slice(0,8);
+      giftStatus(labels.length
+        ? 'Жду доступную «Получить»: ' + labels.join('; ').slice(0,100)
+        : 'Кнопка «Получить» не найдена. См. «Отчёт подарков» в диагностике.');
       return;
     }
     // Нет искусственного ожидания: «Получить» доступна после того,
@@ -2941,19 +2974,81 @@
       // повторно синхронно во время обновления игры.
       giftMarkClicked(button);
       giftFlowActive = true;
-      button.click();
+      if (button.matches('button,[role="button"]')) {
+        button.click();
+      } else if (!giftDispatchClick(button)) {
+        giftFlowActive = false;
+        giftClickedLabels.delete(button);
+        giftAwaitingChanges.delete(button);
+        giftStatus('Кнопка «Получить» недоступна для нажатия.');
+        return;
+      }
       giftClicks++;
       giftStatus('Попыток получения: ' + giftClicks + '. Проверяю следующую награду…');
     } catch (error) {
+      giftFlowActive = false;
+      giftClickedLabels.delete(button);
+      giftAwaitingChanges.delete(button);
       giftStatus('Не удалось нажать: ' + error.message);
     } finally {
       giftBusy = false;
     }
   }
   $('giftRun').onclick = () => collectGifts(true);
-  setInterval(() => {
-    if (document.visibilityState === 'visible' && (uiSettings.autoGifts || Date.now() < giftManualUntil)) collectGifts();
-  }, 600);
+  // Не выключаем сбор при Win+L или смене вкладки Яндекс Браузера.
+  // Полная заморозка вкладки самим браузером всё ещё останавливает JS.
+  function giftAutoTick() {
+    if (uiSettings.autoGifts || Date.now() < giftManualUntil) collectGifts();
+  }
+  setInterval(giftAutoTick,600);
+  function giftAutoResume() {
+    if (uiSettings.autoGifts || Date.now() < giftManualUntil)
+      setTimeout(giftAutoTick,100);
+  }
+  document.addEventListener('visibilitychange',giftAutoResume);
+  document.addEventListener('resume',giftAutoResume);
+  window.addEventListener('focus',giftAutoResume);
+  window.addEventListener('pageshow',giftAutoResume);
+
+  // Диагностика без консоли: только надписи, классы и состояние кнопок.
+  function giftDiagnosticReport() {
+    const buttons = [...document.querySelectorAll(
+      'button,[role="button"],[class*="button"],[class*="Button"]'
+    )].filter(x => /получить|пропустить|продолжить|понятно|\d+:\d+/.test(
+      giftText(x)
+    )).slice(0,25).map(element => ({
+      text:giftText(element).slice(0,90),
+      tag:element.tagName,
+      cls:String(element.className || '').slice(0,100),
+      visible:giftVisible(element),
+      disabled:Boolean(element.disabled) ||
+        element.getAttribute('aria-disabled') === 'true',
+      section:giftSection(element)
+    }));
+    return JSON.stringify({
+      version:'3.16.2',
+      browser:navigator.userAgent.slice(0,180),
+      pageVisibility:document.visibilityState,
+      autoGifts:uiSettings.autoGifts,
+      manualActive:Date.now()<giftManualUntil,
+      flowActive:giftFlowActive,
+      clicks:giftClicks,
+      shopDetected:giftShopOpen(),
+      candidateFound:Boolean(giftCandidate()),
+      currentStatus:$('giftStatus').textContent,
+      buttons
+    },null,2);
+  }
+  $('giftScanCopy').onclick = () => {
+    const report = giftDiagnosticReport();
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(report).then(() =>
+        giftStatus('Отчёт подарков скопирован. Пришли его в чат.')
+      ).catch(() => window.prompt('Скопируй отчёт подарков:',report));
+    } else {
+      window.prompt('Скопируй отчёт подарков:',report);
+    }
+  };
 
   // ===== АВТОМАТИЧЕСКОЕ ОБНОВЛЕНИЕ =====
 
