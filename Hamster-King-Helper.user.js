@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.3
+// @version      3.16.4
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.3</span>
+      <span>🐹 Hamster King Helper v3.16.4</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -2266,7 +2266,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.3',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.4',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2498,7 +2498,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.16.3',
+      version: '3.16.4',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2848,24 +2848,47 @@
     }
     return false;
   }
+  // После нажатия бесплатного подарка ищем реальную, доступную
+  // кнопку «Пропустить» по тексту. Разметка акции может различаться.
+  // Для «Продолжить» по-прежнему требуется контекст предложения.
   function giftSafeAdvanceTarget() {
-    // Пропуск допустим лишь после нажатия «Получить» нашим скриптом
-    // и только в конкретном контексте подарочного предложения.
     if (!giftFlowActive) return null;
-    const nodes = Array.from(document.querySelectorAll(
-      'button,[role="button"],div,span,a'
-    ));
-    return nodes.find(el => {
-      if (!giftVisible(el) || el.disabled ||
-          el.getAttribute('aria-disabled') === 'true') return false;
-      if (!/^(пропустить|продолжить)$/.test(giftText(el))) return false;
-      if (Array.from(el.children).some(child =>
-          /^(пропустить|продолжить)$/.test(giftText(child)))) return false;
-      const style = getComputedStyle(el);
-      return style.opacity !== '0' && style.cursor !== 'not-allowed' &&
-        !el.classList.contains('disabled') && !el.hasAttribute('disabled') &&
-        giftSkipInOfferContext(el);
-    }) || null;
+    const skips = new Set(), continues = new Set();
+    const elements = document.querySelectorAll(
+      'button,[role="button"],div,span,a,[class*="button"],[class*="Button"]'
+    );
+    for (const element of elements) {
+      const label = giftText(element);
+      if (label !== 'пропустить' && label !== 'продолжить') continue;
+      if (!giftVisible(element,true) || element.disabled ||
+          element.getAttribute('aria-disabled') === 'true') continue;
+
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width/2, y = rect.top + rect.height/2;
+      const hit = document.elementFromPoint(x,y);
+      if (!hit || !(element === hit || element.contains(hit) ||
+          (hit !== document.body && hit !== document.documentElement &&
+           hit.contains(element)))) continue;
+      const control = hit.closest(
+        'button,[role="button"],a,[class*="button"],[class*="Button"]'
+      ) || element.closest(
+        'button,[role="button"],a,[class*="button"],[class*="Button"]'
+      ) || hit;
+      if (!giftVisible(control) || control.disabled ||
+          control.getAttribute('aria-disabled') === 'true' ||
+          control.hasAttribute('disabled') ||
+          control.classList?.contains('disabled') ||
+          getComputedStyle(control).cursor === 'not-allowed') continue;
+      // Никогда не подменяем пропуск кнопкой покупки.
+      if (/купить|оплатить|₽|usdt|пополнить|подписка/i.test(giftText(control)))
+        continue;
+
+      if (label === 'пропустить') skips.add(control);
+      else if (giftSkipInOfferContext(element)) continues.add(control);
+    }
+    if (skips.size === 1) return [...skips][0];
+    if (skips.size > 1) return null;
+    return continues.size === 1 ? [...continues][0] : null;
   }
   function giftOfferVisible() {
     // В магазине видны статические рекламные карточки. Пока
@@ -2910,6 +2933,7 @@
     else actual.dispatchEvent(new MouseEvent('click',{...common,buttons:0}));
     return true;
   }
+  const giftSkipAttempts = new WeakMap();
   function advanceGiftOffer() {
     if (!giftOfferVisible()) {
       return false;
@@ -2919,12 +2943,28 @@
       giftStatus('Ожидаю исчезновения таймера на кнопке «Пропустить»…');
       return true;
     }
+    const now = Date.now();
+    let attempt = giftSkipAttempts.get(target);
+    if (attempt && now - attempt.started > 25000) attempt = null;
     if (!giftActionReady(target)) {
-      giftStatus('Ожидаю изменения кнопки «Пропустить» (защита от дубля).');
-      return true;
+      // Однократный click может не сработать в Яндекс Браузере.
+      // Повторяем только безопасный пропуск до 3 раз с паузой 4 сек.
+      if (!attempt || now - attempt.last < 4000 || attempt.count >= 3) {
+        giftStatus(attempt?.count >= 3
+          ? '«Пропустить» не реагирует после 3 попыток. См. отчёт подарков.'
+          : 'Жду реакции на «Пропустить»…');
+        return true;
+      }
+      giftClickedLabels.delete(target);
+      giftAwaitingChanges.delete(target);
     }
     if (giftDispatchClick(target)) {
       giftMarkClicked(target);
+      giftSkipAttempts.set(target,{
+        count:(attempt?.count || 0) + 1,
+        started:attempt?.started || now,
+        last:now
+      });
       giftStatus('Нажал «Пропустить» без покупки. Проверяю следующий подарок…');
     } else {
       giftStatus('Кнопка пропуска перекрыта. Не нажимаю другие элементы.');
@@ -3067,7 +3107,7 @@
       section:giftSection(element)
     }));
     return JSON.stringify({
-      version:'3.16.3',
+      version:'3.16.4',
       browser:navigator.userAgent.slice(0,180),
       pageVisibility:document.visibilityState,
       autoGifts:uiSettings.autoGifts,
@@ -3076,6 +3116,19 @@
       offerDetected:giftOfferVisible(),
       offerTitleDetected:giftOfferTitleVisible(),
       skipCandidateFound:Boolean(giftSafeAdvanceTarget()),
+      visibleSkipLabels:[...document.querySelectorAll(
+        'button,[role="button"],div,span,a'
+      )].filter(el => {
+        const label = giftText(el);
+        return (label === 'пропустить' || label === 'продолжить') &&
+          giftVisible(el,true) &&
+          ![...el.children].some(child => giftText(child) === label);
+      }).slice(0,8).map(el => ({
+        text:giftText(el),
+        tag:el.tagName,
+        cls:String(el.className || '').slice(0,110),
+        inOfferContext:giftSkipInOfferContext(el)
+      })),
       clicks:giftClicks,
       shopDetected:giftShopOpen(),
       candidateFound:Boolean(giftCandidate()),
