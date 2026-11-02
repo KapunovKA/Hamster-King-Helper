@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.4
+// @version      3.16.5
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.4</span>
+      <span>🐹 Hamster King Helper v3.16.5</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -2266,7 +2266,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.4',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.5',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2498,7 +2498,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.16.4',
+      version: '3.16.5',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2848,47 +2848,49 @@
     }
     return false;
   }
-  // После нажатия бесплатного подарка ищем реальную, доступную
-  // кнопку «Пропустить» по тексту. Разметка акции может различаться.
-  // Для «Продолжить» по-прежнему требуется контекст предложения.
+  // Реальная кнопка в Яндекс Браузере: BUTTON.button_tertiary,
+  // внутри которого SPAN «Пропустить». Не определяем кнопку через
+  // elementFromPoint в центре подписи: это ненадёжно для таких окон.
+  function giftSafeSkipControl(button, label) {
+    if (!button || !giftVisible(button) || button.disabled ||
+        button.getAttribute('aria-disabled') === 'true' ||
+        button.hasAttribute('disabled') ||
+        button.classList?.contains('disabled') ||
+        getComputedStyle(button).cursor === 'not-allowed' ||
+        giftText(button) !== label) return false;
+    const childLabel = [...button.querySelectorAll('span,div')].find(child =>
+      giftText(child) === label && giftVisible(child,true) &&
+      giftSkipInOfferContext(child));
+    return giftSkipInOfferContext(button) || Boolean(childLabel);
+  }
   function giftSafeAdvanceTarget() {
     if (!giftFlowActive) return null;
-    const skips = new Set(), continues = new Set();
-    const elements = document.querySelectorAll(
-      'button,[role="button"],div,span,a,[class*="button"],[class*="Button"]'
-    );
-    for (const element of elements) {
-      const label = giftText(element);
+    // Приоритет настоящим кнопкам; выключенные нельзя обходить
+    // нажатием на их внутренние span.
+    const buttons = [...document.querySelectorAll('button,[role="button"]')];
+    const skip = buttons.filter(button =>
+      giftSafeSkipControl(button,'пропустить'));
+    if (skip.length === 1) return skip[0];
+    if (skip.length > 1) return null;
+    const next = buttons.filter(button =>
+      giftSafeSkipControl(button,'продолжить'));
+    if (next.length === 1) return next[0];
+    if (next.length > 1) return null;
+    if (buttons.some(button =>
+        /^(пропустить|продолжить)$/.test(giftText(button)))) return null;
+
+    // Запасной вариант для настоящих div-кнопок без HTML button.
+    const fallback = new Set();
+    for (const node of document.querySelectorAll('div,span,a')) {
+      const label = giftText(node);
       if (label !== 'пропустить' && label !== 'продолжить') continue;
-      if (!giftVisible(element,true) || element.disabled ||
-          element.getAttribute('aria-disabled') === 'true') continue;
-
-      const rect = element.getBoundingClientRect();
-      const x = rect.left + rect.width/2, y = rect.top + rect.height/2;
-      const hit = document.elementFromPoint(x,y);
-      if (!hit || !(element === hit || element.contains(hit) ||
-          (hit !== document.body && hit !== document.documentElement &&
-           hit.contains(element)))) continue;
-      const control = hit.closest(
-        'button,[role="button"],a,[class*="button"],[class*="Button"]'
-      ) || element.closest(
-        'button,[role="button"],a,[class*="button"],[class*="Button"]'
-      ) || hit;
-      if (!giftVisible(control) || control.disabled ||
-          control.getAttribute('aria-disabled') === 'true' ||
-          control.hasAttribute('disabled') ||
-          control.classList?.contains('disabled') ||
-          getComputedStyle(control).cursor === 'not-allowed') continue;
-      // Никогда не подменяем пропуск кнопкой покупки.
-      if (/купить|оплатить|₽|usdt|пополнить|подписка/i.test(giftText(control)))
-        continue;
-
-      if (label === 'пропустить') skips.add(control);
-      else if (giftSkipInOfferContext(element)) continues.add(control);
+      if (buttons.some(button => button.contains(node))) continue;
+      const control = node.closest('[class*="button"],[class*="Button"],[class*="btn"]');
+      if (!control || control.matches('button,[role="button"]') ||
+          !/button|btn/i.test(String(control.className||''))) continue;
+      if (giftSafeSkipControl(control,label)) fallback.add(control);
     }
-    if (skips.size === 1) return [...skips][0];
-    if (skips.size > 1) return null;
-    return continues.size === 1 ? [...continues][0] : null;
+    return fallback.size === 1 ? [...fallback][0] : null;
   }
   function giftOfferVisible() {
     // В магазине видны статические рекламные карточки. Пока
@@ -2934,6 +2936,15 @@
     return true;
   }
   const giftSkipAttempts = new WeakMap();
+  function giftClickSafeSkip(target) {
+    // Клик прямо по React BUTTON, а не по внутреннему span.
+    if (target.matches('button,[role="button"]') &&
+        giftSafeSkipControl(target,giftText(target))) {
+      target.click();
+      return true;
+    }
+    return giftDispatchClick(target);
+  }
   function advanceGiftOffer() {
     if (!giftOfferVisible()) {
       return false;
@@ -2958,7 +2969,7 @@
       giftClickedLabels.delete(target);
       giftAwaitingChanges.delete(target);
     }
-    if (giftDispatchClick(target)) {
+    if (giftClickSafeSkip(target)) {
       giftMarkClicked(target);
       giftSkipAttempts.set(target,{
         count:(attempt?.count || 0) + 1,
@@ -3107,7 +3118,7 @@
       section:giftSection(element)
     }));
     return JSON.stringify({
-      version:'3.16.4',
+      version:'3.16.5',
       browser:navigator.userAgent.slice(0,180),
       pageVisibility:document.visibilityState,
       autoGifts:uiSettings.autoGifts,
@@ -3116,6 +3127,21 @@
       offerDetected:giftOfferVisible(),
       offerTitleDetected:giftOfferTitleVisible(),
       skipCandidateFound:Boolean(giftSafeAdvanceTarget()),
+      actualSkipButtons:[...document.querySelectorAll(
+        'button,[role="button"]'
+      )].filter(el => /^(пропустить|продолжить)$/.test(giftText(el)))
+        .slice(0,8).map(el => ({
+          text:giftText(el),
+          cls:String(el.className||'').slice(0,110),
+          visible:giftVisible(el),
+          context:giftSkipInOfferContext(el),
+          safe:giftSafeSkipControl(el,giftText(el)),
+          childContexts:[...el.querySelectorAll('span,div')].slice(0,5)
+            .map(c => ({
+              text:giftText(c).slice(0,40),
+              context:giftSkipInOfferContext(c)
+            }))
+        })),
       visibleSkipLabels:[...document.querySelectorAll(
         'button,[role="button"],div,span,a'
       )].filter(el => {
