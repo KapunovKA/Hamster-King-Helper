@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.9
+// @version      3.16.10
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -360,7 +360,8 @@
       <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
       <div class="settings-title" style="margin-top:12px">⚡ Автоматизация</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAck"> 🧩 Пазл: автоматически нажимать «Понятно»</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoAck"> Автоматически нажимать «Понятно» во всей игре</label>
+      <div id="autoAckStatus" class="small" aria-live="polite">Ожидаю кнопку «Понятно»…</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
@@ -448,13 +449,16 @@
     showGifts: true,
     showRumors: true,
     autoGifts: false,
-    autoPuzzleAck: true,
+    autoAck: true,
     autoPuzzleAction: true
   };
 
   let uiSettings = { ...DEFAULT_SETTINGS };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (typeof saved.autoAck !== 'boolean' && typeof saved.autoPuzzleAck === 'boolean') {
+      saved.autoAck = saved.autoPuzzleAck;
+    }
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
       if (typeof saved[key] === 'boolean') uiSettings[key] = saved[key];
     }
@@ -499,9 +503,12 @@
       uiSettings[input.dataset.setting] = input.checked;
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
       applyUiSettings();
-      if ((input.dataset.setting === 'autoPuzzleAck' ||
-           input.dataset.setting === 'autoPuzzleAction') &&
-          !uiSettings.autoPuzzleAck && !uiSettings.autoPuzzleAction) {
+      if (input.dataset.setting === 'autoAck') {
+        autoAckLastButton = null;
+        autoAckLastContext = '';
+        updateAutoAckStatus();
+      }
+      if (input.dataset.setting === 'autoPuzzleAction' && !uiSettings.autoPuzzleAction) {
         puzzleAckStop();
       }
       if (input.dataset.setting === 'puzzle' && !uiSettings.puzzle) {
@@ -1454,15 +1461,14 @@
     }
   };
 
-  // ===== ПАЗЛ =====
-  // Подтверждаем только видимую кнопку с точной надписью «Понятно»,
-  // когда пользователь запустил пазл через нашу кнопку.
-  // Не трогаем магазин, подарки, платные предложения или другие команды.
+  // ===== «ПОНЯТНО» ВО ВСЕЙ ИГРЕ И СЕАНС ДЕЙСТВИЙ ПАЗЛА =====
+  // Подтверждения работают независимо от запуска пазла.
+  // Кнопки действий с расходом ресурсов по-прежнему ограничены сеансом пазла.
   const PUZZLE_ACK_SESSION_MS = 45 * 60 * 1000;
   let puzzleAckUntil = 0;
-  let puzzleAckLastButton = null;
-  let puzzleAckLastContext = '';
-  let puzzleAckCount = 0;
+  let autoAckLastButton = null;
+  let autoAckLastContext = '';
+  let autoAckCount = 0;
   let puzzleActionLastDialog = null;
   let puzzleActionLastTitle = '';
   let puzzleActionUsed = false;
@@ -1471,8 +1477,6 @@
 
   function puzzleAckStop() {
     puzzleAckUntil = 0;
-    puzzleAckLastButton = null;
-    puzzleAckLastContext = '';
     puzzleActionLastDialog = null;
     puzzleActionLastTitle = '';
     puzzleActionUsed = false;
@@ -1481,11 +1485,8 @@
   }
   function puzzleAckArm() {
     if (!uiSettings.puzzle ||
-        (!uiSettings.autoPuzzleAck && !uiSettings.autoPuzzleAction)) return;
+        (!uiSettings.autoAck && !uiSettings.autoPuzzleAction)) return;
     puzzleAckUntil = Date.now() + PUZZLE_ACK_SESSION_MS;
-    puzzleAckLastButton = null;
-    puzzleAckLastContext = '';
-    puzzleAckCount = 0;
     puzzleActionLastDialog = null;
     puzzleActionLastTitle = '';
     puzzleActionUsed = false;
@@ -1494,7 +1495,7 @@
     $('puzzleAckStatus').textContent =
       '🧩 Пазл: ' +
       [
-        uiSettings.autoPuzzleAck ? 'авто «Понятно»' : '',
+        uiSettings.autoAck ? 'авто «Понятно»' : '',
         uiSettings.autoPuzzleAction ? 'авто действия (расход ресурсов)' : ''
       ].filter(Boolean).join(' + ');
     $('puzzleAckStatus').classList.remove('hidden');
@@ -1516,22 +1517,6 @@
       (allowNoninteractiveLabel || style.pointerEvents !== 'none') &&
       style.opacity !== '0';
   }
-  function puzzleAckInUnrelatedWindow(node) {
-    // Исключаем чужие окна по близкому окружению кнопки, не по
-    // названию игровой локации и не по тексту всей страницы.
-    let parent = node.parentElement;
-    for (let depth = 0; parent && depth < 7; depth++, parent = parent.parentElement) {
-      if (parent === document.body || parent === document.documentElement) break;
-      const rect = parent.getBoundingClientRect();
-      // Глобальная обёртка игры не является диалогом.
-      if (rect.width >= innerWidth * .95 && rect.height >= innerHeight * .85) break;
-      const text = puzzleAckText(parent);
-      if (text.length > 900) break;
-      if (/ежедневный подарок|подарки|покупк|купить|оплатить|пополнить|магазин|vip\s*30|₽|usdt|сделка стратега|доля капо|выбор босса/i.test(text))
-        return true;
-    }
-    return false;
-  }
   // Отбираем самый внутренний элемент с точным текстом «Понятно».
   // Настоящая кнопка может быть как button, так и div/span без class=button.
   // Клик по внутренней подписи всплывает в родительский React-обработчик.
@@ -1545,8 +1530,7 @@
           [...node.children].some(child => puzzleAckText(child) === 'понятно') ||
           // Надпись внутри кнопки может иметь pointer-events:none.
           // Саму кнопку отдельно проверяем на возможность нажатия.
-          !puzzleAckVisible(node, true) ||
-          puzzleAckInUnrelatedWindow(node)) continue;
+          !puzzleAckVisible(node, true)) continue;
       const rect = node.getBoundingClientRect();
       const hit = document.elementFromPoint(
         rect.left + rect.width / 2, rect.top + rect.height / 2
@@ -1599,34 +1583,38 @@
     if (typeof target.click === 'function') target.click();
     else target.dispatchEvent(new MouseEvent('click',{...common,buttons:0}));
   }
-  function puzzleAckTick() {
-    if (!puzzleAckUntil || !uiSettings.autoPuzzleAck || !uiSettings.puzzle) return;
-    if (Date.now() >= puzzleAckUntil) {
-      puzzleAckStop();
-      return;
-    }
+  function updateAutoAckStatus() {
+    $('autoAckStatus').textContent = !uiSettings.autoAck
+      ? 'Авто «Понятно» выключено'
+      : autoAckCount ? '«Понятно» нажато: ' + autoAckCount
+      : 'Ожидаю кнопку «Понятно»…';
+  }
+  function autoAckTick() {
+    if (!uiSettings.autoAck) return;
     if (document.visibilityState !== 'visible') return;
-    // Флаг giftFlowActive может остаться от предыдущего сбора.
-    // Он не должен навсегда блокировать подтверждения в пазле.
+    // Окна текущего сбора подарков обслуживает их собственный обработчик.
     if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
 
     try {
       const match = puzzleAckFindButton();
-      if (!match) return;
+      if (!match) {
+        autoAckLastButton = null;
+        autoAckLastContext = '';
+        return;
+      }
       const button = match.node;
       const context = puzzleAckContext(match.label);
-      if (button === puzzleAckLastButton && context === puzzleAckLastContext)
+      if (button === autoAckLastButton && context === autoAckLastContext)
         return;
       // Не повторяем клик, пока всё то же окно остаётся видимым.
-      puzzleAckLastButton = button;
-      puzzleAckLastContext = context;
+      autoAckLastButton = button;
+      autoAckLastContext = context;
       puzzleAckDispatchClick(button);
-      puzzleAckCount++;
-      $('puzzleAckStatus').textContent =
-        '🧩 Пазл: «Понятно» нажато ' + puzzleAckCount + ' раз';
+      autoAckCount++;
+      updateAutoAckStatus();
     } catch (error) {
-      $('puzzleAckStatus').textContent =
-        '🧩 Не удалось нажать «Понятно»: ' + error.message;
+      $('autoAckStatus').textContent =
+        'Не удалось нажать «Понятно»: ' + error.message;
     }
   }
   // ===== ПАЗЛ: КНОПКА ДЕЙСТВИЯ В КАРТОЧКАХ ЛОКАЦИЙ =====
@@ -1769,9 +1757,10 @@
   }
 
   setInterval(() => {
-    puzzleAckTick();
+    autoAckTick();
     puzzleActionTick();
   },500);
+  updateAutoAckStatus();
 
   function puzzleNote(text) {
     $('puzzleAckStatus').textContent = '🧩 Пазл: ' + text;
