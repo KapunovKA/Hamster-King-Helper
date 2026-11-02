@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.2
+// @version      3.16.3
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,7 +372,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.2</span>
+      <span>🐹 Hamster King Helper v3.16.3</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -2266,7 +2266,7 @@
   let chestTestLog = {};
   const chestTestNote = (step, info = {}) => {
     chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.2',time:new Date().toISOString(),url:location.href,step};
+      version:'3.16.3',time:new Date().toISOString(),url:location.href,step};
     chestScanReport = JSON.stringify(chestTestLog,null,2);
     chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
   };
@@ -2498,7 +2498,7 @@
     chestScanStatus(step);
     chestScanReport = JSON.stringify({
       mode: 'chest-auto-collect',
-      version: '3.16.2',
+      version: '3.16.3',
       time: new Date().toISOString(),
       url: location.href,
       step,
@@ -2821,28 +2821,69 @@
   // Нажимаем только доступную кнопку «Пропустить»/«Продолжить» без дополнительного ожидания таймера.
   let giftManualUntil = 0;
   let giftFlowActive = false;
-  function giftOfferVisible() {
-    // После нажатия «Получить» отслеживаем любой вариант платного
-    // предложения, а не только известные названия.
-    const skip = giftSafeAdvanceTarget();
-    if (skip) return true;
-    // Таймер ещё может отображаться вместо кнопки «Пропустить».
-    // Не нажимаем на награды под открытым платным предложением.
+  const GIFT_OFFER_TITLE = /сделка стратега|доля капо|выбор босса/i;
+  function giftOfferTitleVisible() {
     return Array.from(document.querySelectorAll('div,span,h1,h2,h3'))
       .some(el => el.children.length < 4 && giftVisible(el,true) &&
-        /сделка стратега|доля капо|выбор босса/i.test(giftText(el)) &&
-        giftText(el).length < 90);
+        GIFT_OFFER_TITLE.test(giftText(el)) && giftText(el).length < 90);
+  }
+  function giftSkipInOfferContext(node) {
+    // «Продолжить» в другом игровом окне не является пропуском рекламы.
+    let parent = node.parentElement;
+    for (let depth = 0; parent && depth < 9;
+         depth++, parent = parent.parentElement) {
+      if (parent === document.body || parent === document.documentElement)
+        break;
+      const text = giftText(parent);
+      if (text.length > 1600) break;
+      if (/покинуть локацию|не сможешь сюда вернуться|удалить аккаунт/i.test(text))
+        return false;
+      if (GIFT_OFFER_TITLE.test(text)) return true;
+      if (parent.matches(
+        '[role="dialog"],[aria-modal="true"],[class*="modal"],[class*="Modal"],[class*="popup"],[class*="Popup"]'
+      )) {
+        return !/ежедневный подарок|поздравляем,? получено/i.test(text) &&
+          /предложени|скидк|купить|платн|цена|стоимость|vip|₽|usdt/i.test(text);
+      }
+    }
+    return false;
   }
   function giftSafeAdvanceTarget() {
-    const nodes = Array.from(document.querySelectorAll('button,[role="button"],div,span,a'));
+    // Пропуск допустим лишь после нажатия «Получить» нашим скриптом
+    // и только в конкретном контексте подарочного предложения.
+    if (!giftFlowActive) return null;
+    const nodes = Array.from(document.querySelectorAll(
+      'button,[role="button"],div,span,a'
+    ));
     return nodes.find(el => {
-      if (!giftVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+      if (!giftVisible(el) || el.disabled ||
+          el.getAttribute('aria-disabled') === 'true') return false;
       if (!/^(пропустить|продолжить)$/.test(giftText(el))) return false;
-      if (Array.from(el.children).some(child => /^(пропустить|продолжить)$/.test(giftText(child)))) return false;
+      if (Array.from(el.children).some(child =>
+          /^(пропустить|продолжить)$/.test(giftText(child)))) return false;
       const style = getComputedStyle(el);
       return style.opacity !== '0' && style.cursor !== 'not-allowed' &&
-        !el.classList.contains('disabled') && !el.hasAttribute('disabled');
-    });
+        !el.classList.contains('disabled') && !el.hasAttribute('disabled') &&
+        giftSkipInOfferContext(el);
+    }) || null;
+  }
+  function giftOfferVisible() {
+    // В магазине видны статические рекламные карточки. Пока
+    // наш сборщик ещё не нажимал подарок, они не должны блокировать его.
+    if (!giftFlowActive) return false;
+    if (giftSafeAdvanceTarget()) return true;
+    if (!giftOfferTitleVisible()) return false;
+    // Если кнопку бесплатного подарка реально можно нажать,
+    // не принимаем обычную рекламную карточку за всплывающее окно.
+    const candidate = giftCandidate();
+    if (candidate) {
+      const rect = candidate.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        rect.left + rect.width / 2, rect.top + rect.height / 2
+      );
+      if (hit && (candidate === hit || candidate.contains(hit))) return false;
+    }
+    return true;
   }
   function giftDispatchClick(target) {
     const rect = target.getBoundingClientRect();
@@ -3026,12 +3067,15 @@
       section:giftSection(element)
     }));
     return JSON.stringify({
-      version:'3.16.2',
+      version:'3.16.3',
       browser:navigator.userAgent.slice(0,180),
       pageVisibility:document.visibilityState,
       autoGifts:uiSettings.autoGifts,
       manualActive:Date.now()<giftManualUntil,
       flowActive:giftFlowActive,
+      offerDetected:giftOfferVisible(),
+      offerTitleDetected:giftOfferTitleVisible(),
+      skipCandidateFound:Boolean(giftSafeAdvanceTarget()),
       clicks:giftClicks,
       shopDetected:giftShopOpen(),
       candidateFound:Boolean(giftCandidate()),
