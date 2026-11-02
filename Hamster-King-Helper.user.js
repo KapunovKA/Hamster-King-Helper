@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.7
+// @version      3.16.8
 // @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
+// @grant        GM_info
 // @grant        unsafeWindow
 // @connect      crypto-witch.ru
 // @connect      t.me
@@ -15,6 +16,9 @@
 
 (() => {
   'use strict';
+
+  const SCRIPT_VERSION =
+    (typeof GM_info !== 'undefined' && GM_info.script?.version) || '?';
 
   const HOST = 'hk-unified-helper';
   if (document.getElementById(HOST)) return;
@@ -254,10 +258,6 @@
     .settings-box .setting-row { font-size:12px; padding:5px 0; }
     .dash-secondary { margin-top:8px; }
     .dash-secondary .dash-details { margin-top:6px; }
-    .chest-tools { padding-top:9px; margin-top:9px; border-top:1px solid #38465f; }
-    .chest-tool-buttons { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:7px; }
-    .chest-tool-buttons .btn { width:100%; margin:0; padding:7px 5px; font-size:11px; }
-    .chest-tool-buttons .btn:last-child { grid-column:1/-1; }
     @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
 
     /* Только iPhone: нижняя выдвижная панель, удобная для касаний.
@@ -364,8 +364,6 @@
     :host(.hk-iphone) textarea { font-size:16px; min-height:44px; }
     :host(.hk-iphone) .setting-row { min-height:44px; font-size:14px; }
     :host(.hk-iphone) .setting-row input { width:21px; height:21px; }
-    :host(.hk-iphone) .chest-tool-buttons { grid-template-columns:minmax(0,1fr); }
-    :host(.hk-iphone) .chest-tool-buttons .btn:last-child { grid-column:auto; }
   </style>
 
   <button id="mini" class="mini" aria-label="Открыть Hamster King Helper">🐹</button>
@@ -373,7 +371,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v3.16.5</span>
+      <span>🐹 Hamster King Helper v${SCRIPT_VERSION}</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -383,7 +381,6 @@
     <div id="settingsBox" class="settings-box hidden">
       <div class="settings-title">⚙️ Что показывать в панели</div>
       <label class="setting-row"><input type="checkbox" data-setting="showGifts"> 🎁 Подарки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="showChests"> 📦 Сундуки на карте</label>
       <label class="setting-row"><input type="checkbox" data-setting="showRumors"> 🗺️ Слухи</label>
       <label class="setting-row"><input type="checkbox" data-setting="coupons"> 🎟️ Купоны Telegram и их кнопки</label>
       <label class="setting-row"><input type="checkbox" data-setting="puzzle"> 🧩 Кнопка пазла</label>
@@ -392,7 +389,6 @@
       <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
       <div class="settings-title" style="margin-top:12px">⚡ Автоматизация</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoChests"> Автоматически собирать сундуки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAck"> 🧩 Пазл: автоматически нажимать «Понятно»</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
@@ -403,11 +399,6 @@
         <span class="dash-title">🎁 Подарки</span>
         <div id="giftStatus" class="small">Ожидание магазина</div>
         <button id="giftRun" class="btn">🎁 Собрать</button>
-      </div>
-      <div id="section-chest-scan" class="dash-card">
-        <span class="dash-title">📦 Сундуки на карте</span>
-        <div id="chestAutoStatus" class="small">Автосбор выключен</div>
-        <button id="chestAutoToggle" class="btn purple" title="Включить или выключить безопасный автосбор дохода">▶ Автосбор: ВЫКЛ</button>
       </div>
       <div id="section-rumors-card" class="dash-card">
         <span class="dash-title">🗺️ Слухи</span>
@@ -441,18 +432,7 @@
       <details id="section-diagnostics" class="dash-details">
         <summary>🛠️ Диагностика и служебные кнопки</summary>
         <div id="diag" class="block small"></div>
-        <div class="chest-tools">
-          <div class="settings-title">📦 Инструменты сундуков</div>
-          <div id="chestScanStatus" class="small">Сканер: только диагностика</div>
-          <div class="chest-tool-buttons">
-            <button id="chestScanRun" class="btn">🔎 Найти</button>
-            <button id="chestScanCopy" class="btn">📋 Отчёт</button>
-            <button id="giftScanCopy" class="btn" title="Проверка кнопок подарков без данных аккаунта">🎁 Отчёт подарков</button>
-            <button id="chestOpenTest" class="btn purple" title="Однократно пытается открыть окно дохода, не собирая награду">📦 Открыть (тест)</button>
-            <button id="chestCollectTest" class="btn purple" title="Однократно нажимает СОБРАТЬ только в подтверждённом окне дохода">💰 Собрать (тест)</button>
-            <button id="chestTapRecord" class="btn" title="Записывает одно ручное нажатие на карту">🎯 Записать нажатие</button>
-          </div>
-        </div>
+        <button id="giftScanCopy" class="btn" title="Проверка кнопок подарков без данных аккаунта">🎁 Отчёт подарков</button>
       </details>
       <details id="section-manual" class="dash-details">
         <summary>✏️ Ручной ввод слухов</summary>
@@ -510,10 +490,8 @@
     coupons: true,
     puzzle: true,
     showGifts: true,
-    showChests: true,
     showRumors: true,
     autoGifts: false,
-    autoChests: false,
     autoPuzzleAck: true,
     autoPuzzleAction: true
   };
@@ -540,7 +518,6 @@
     ],
     puzzle: [$('puzzle')],
     showGifts: [$('section-gifts')],
-    showChests: [$('section-chest-scan')],
     showRumors: [$('section-rumors-card')]
   };
 
@@ -570,10 +547,6 @@
       uiSettings[input.dataset.setting] = input.checked;
       try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
       applyUiSettings();
-      if (input.dataset.setting === 'autoChests') {
-        updateChestAutoToggle();
-        if (uiSettings.autoChests) setTimeout(chestAutoTick, 100);
-      }
       if ((input.dataset.setting === 'autoPuzzleAck' ||
            input.dataset.setting === 'autoPuzzleAction') &&
           !uiSettings.autoPuzzleAck && !uiSettings.autoPuzzleAction) {
@@ -2170,606 +2143,6 @@
     loadCoupons();
   });
 
-  // ===== СКАНЕР СУНДУКОВ НА КАРТЕ (ТОЛЬКО ЧТЕНИЕ) =====
-  // Не нажимает на карту и не вызывает игровые методы сбора.
-  let chestScanReport = 'Сканирование ещё не запускалось.';
-  const chestScanStatus = message => { $('chestScanStatus').textContent = message; };
-  function scanMapChests() {
-    const map = getMap();
-    if (!map || typeof map.queryRenderedFeatures !== 'function') {
-      chestScanStatus('Карта MapLibre не найдена. Открой карту города.');
-      return;
-    }
-    try {
-      const canvas = map.getCanvas();
-      const width = canvas.clientWidth || canvas.width;
-      const height = canvas.clientHeight || canvas.height;
-      if (!width || !height) {
-        chestScanStatus('Карта пока не готова.');
-        return;
-      }
-      const layers = (map.getStyle()?.layers || [])
-        .filter(layer => layer.type === 'symbol')
-        .map(layer => layer.id);
-      // Считываем видимые символы. Никаких кликов или изменения состояния игры.
-      const features = map.queryRenderedFeatures(
-        [[0, 0], [width, height]], { layers }
-      );
-      const relevant = /chest|treasure|loot|reward|income|profit|collect|сундук|сокровищ|доход|награда|сбор/i;
-      const matched = features.filter(feature => {
-        const layer = feature.layer?.id || '';
-        const props = JSON.stringify(feature.properties || {});
-        return relevant.test(layer + ' ' + props);
-      });
-      const unique = new Map();
-      for (const feature of matched) {
-        const p = feature.properties || {};
-        const coordinates = feature.geometry?.coordinates;
-        const key = JSON.stringify([feature.layer?.id, feature.id, p, coordinates]);
-        if (!unique.has(key)) unique.set(key, {
-          layer: feature.layer?.id,
-          id: feature.id ?? null,
-          properties: p,
-          geometryType: feature.geometry?.type,
-          coordinates
-        });
-      }
-      const byLayer = {};
-      for (const feature of features) {
-        const id = feature.layer?.id || 'unknown';
-        byLayer[id] = (byLayer[id] || 0) + 1;
-      }
-      const report = {
-        time: new Date().toISOString(),
-        url: location.href,
-        mapElement: map.getContainer()?.id || '',
-        viewport: { width, height },
-        symbolLayers: layers,
-        renderedFeatures: features.length,
-        featureCountByLayer: byLayer,
-        potentialChestCount: unique.size,
-        candidates: Array.from(unique.values()).slice(0, 60)
-      };
-      chestScanReport = JSON.stringify(report, null, 2);
-      chestScanStatus('Символов: ' + features.length +
-        '; возможных сундуков: ' + unique.size +
-        '. Нажми «📋 Отчёт» и пришли результат.');
-    } catch (error) {
-      chestScanStatus('Ошибка сканирования: ' + error.message);
-      chestScanReport = 'Ошибка: ' + String(error);
-    }
-  }
-
-
-  // Запись одного РЕАЛЬНОГО нажатия пользователя на карту.
-  // Не отправляет синтетические клики и не нажимает кнопку сбора.
-  let chestTapCapture = null;
-  $('chestTapRecord').onclick = () => {
-    if (chestTapCapture) {
-      chestTapCapture.stop();
-      return;
-    }
-    const map = getMap();
-    if (!map || typeof map.queryRenderedFeatures !== 'function') {
-      chestScanStatus('Карта не найдена. Открой город.');
-      return;
-    }
-    const canvas = map.getCanvas();
-    const container = map.getContainer();
-    const events = [];
-    let finished = false;
-    const types = ['pointerdown','pointerup','mousedown','mouseup','click','touchstart','touchend'];
-    const handler = event => {
-      if (finished) return;
-      const rect = canvas.getBoundingClientRect();
-      const touch = event.changedTouches?.[0] || event.touches?.[0];
-      const x = (touch?.clientX ?? event.clientX ?? 0) - rect.left;
-      const y = (touch?.clientY ?? event.clientY ?? 0) - rect.top;
-      if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
-      const features = map.queryRenderedFeatures([x,y]).slice(0,20).map(f => ({
-        layer:f.layer?.id || null,
-        properties:f.properties || {},
-        coordinates:f.geometry?.coordinates || null
-      }));
-      events.push({type:event.type,x:Math.round(x),y:Math.round(y),
-        target:event.target?.tagName || '',features});
-      if (event.type === 'click' || event.type === 'touchend' ||
-          event.type === 'pointerup') {
-        setTimeout(() => finish(), 500);
-      }
-    };
-    const cleanup = () => {
-      types.forEach(type => container.removeEventListener(type,handler,true));
-      chestTapCapture = null;
-    };
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      cleanup();
-      chestScanReport = JSON.stringify({
-        mode:'real-chest-tap',time:new Date().toISOString(),
-        url:location.href,events
-      },null,2);
-      chestScanStatus('Записано событий: '+events.length+
-        '. Нажми «📋 Отчёт» и пришли результат.');
-    };
-    const stop = () => { finish(); };
-    chestTapCapture = {stop};
-    types.forEach(type => container.addEventListener(type,handler,true));
-    closeHelperPanel();
-    chestScanStatus('Режим записи: нажми один сундук вручную. Затем открой помощник и скопируй отчёт.');
-    setTimeout(() => { if (!finished) finish(); },20000);
-  };
-
-
-  // Безопасный однократный тест открытия через события MapLibre.
-  // Строго один подтверждённый доходный маркер, никакого сбора наград.
-  let chestTestBusy = false;
-  let chestTestLog = {};
-  const chestTestNote = (step, info = {}) => {
-    chestTestLog = {...chestTestLog,mode:'maplibre-open-test',...info,
-      version:'3.16.5',time:new Date().toISOString(),url:location.href,step};
-    chestScanReport = JSON.stringify(chestTestLog,null,2);
-    chestScanStatus(step + ' — отчёт доступен по кнопке 📋.');
-  };
-  $('chestOpenTest').onclick = () => {
-    if (chestTestBusy) return;
-    chestTestLog = {};
-    chestTestNote('Тест начат');
-    const map = getMap();
-    if (!map || !map.getCanvas || !map.project || !map.queryRenderedFeatures ||
-        typeof map.fire !== 'function') {
-      chestTestNote('Карта MapLibre не готова.');
-      return;
-    }
-    try {
-      const canvas = map.getCanvas();
-      const width = canvas.clientWidth, height = canvas.clientHeight;
-      if (!width || !height || !map.getLayer('markers-layer')) {
-        chestTestNote('Слой маркеров ещё не готов.');
-        return;
-      }
-      const matches = map.queryRenderedFeatures([[0,0],[width,height]],{
-        layers:['markers-layer']
-      }).filter(f => f.geometry?.type === 'Point' &&
-        f.properties?.hasIncome === true &&
-        typeof f.properties?.buildingId === 'string' &&
-        f.properties.buildingId.startsWith('city_name_ftue_europe_building_'));
-      const unique = new Map(matches.map(f=>[f.properties.buildingId,f]));
-      chestTestLog.candidates = [...unique.keys()];
-      chestTestLog.viewport = {width,height};
-      // Ресурсные здания тоже имеют hasIncome=true. Они не должны
-      // блокировать проверку заранее подтверждённого building_1.
-      const ordinary = [...unique.keys()].filter(id =>
-        /^city_name_ftue_europe_building_[0-9]+$/.test(id));
-      chestTestLog.ordinaryCandidates = ordinary;
-      if (ordinary.length !== 2) {
-        chestTestNote('Обычных доходных зданий: '+ordinary.length+
-          ' (ожидалось 2). Тест отменён.');
-        return;
-      }
-      const feature = unique.get('city_name_ftue_europe_building_1');
-      if (!feature) {
-        chestTestNote('Подтверждённый маркер building_1 не виден.');
-        return;
-      }
-      const point = map.project(feature.geometry.coordinates);
-      chestTestLog.selected = feature.properties.buildingId;
-      chestTestLog.point = {x:point.x,y:point.y};
-      if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
-          point.x < 15 || point.y < 15 ||
-          point.x > width-15 || point.y > height-15) {
-        chestTestNote('Маркер вне безопасной области карты.');
-        return;
-      }
-      chestTestNote('Проверка видимости маркера',{stage:'hit-test'});
-      const hitX = Math.round(point.x), hitY = Math.round(point.y);
-      const top = map.queryRenderedFeatures([[hitX-5,hitY-5],[hitX+5,hitY+5]],{
-        layers:['markers-layer']
-      });
-      chestTestLog.hitIds = [...new Set(top.map(f=>f.properties?.buildingId).filter(Boolean))];
-      if (!top.some(f=>f.properties?.buildingId === feature.properties.buildingId)) {
-        chestTestNote('Маркер перекрыт или не найден в точке клика.');
-        return;
-      }
-      chestTestBusy = true;
-      const id = feature.properties.buildingId;
-      chestTestNote('Проверяю открытие '+id+'…');
-      closeHelperPanel();
-      chestTestNote('Подготовка события',{stage:'event-construction'});
-      // Safari в контексте Userscripts/Tampermonkey может отвергать
-      // view:window при конструировании MouseEvent (TypeError).
-      // В MapLibre координаты передаются отдельно через point/lngLat.
-      const rect = canvas.getBoundingClientRect();
-      const clientX = rect.left + point.x, clientY = rect.top + point.y;
-      let originalEvent, eventConstruction = 'MouseEvent';
-      try {
-        originalEvent = new MouseEvent('click',{
-          bubbles:true,cancelable:true,clientX,clientY
-        });
-      } catch (eventError) {
-        eventConstruction = 'document.createEvent';
-        originalEvent = document.createEvent('Event');
-        originalEvent.initEvent('click',true,true);
-        chestTestLog.mouseEventError = String(eventError.message || eventError);
-      }
-      chestTestNote('Событие создано',{
-        stage:'event-created',eventConstruction,clientX,clientY
-      });
-      // MapLibre сам направляет click в обработчики слоёв.
-      chestTestNote('Отправка события карте',{stage:'map-fire'});
-      map.fire('click',{point,lngLat:map.unproject(point),originalEvent});
-      chestTestNote('Событие MapLibre отправлено',{eventTrusted:originalEvent.isTrusted});
-      setTimeout(()=>{
-        const pageText = document.body?.innerText || '';
-        const opened = /Время получения дохода/i.test(pageText);
-        chestTestNote(opened
-          ? '✓ Окно дохода открылось! Сбор не выполнялся.'
-          : 'Окно дохода не подтверждено.',{opened,visibility:document.visibilityState});
-        chestTestBusy = false;
-      },1000);
-    } catch(error) {
-      chestTestBusy = false;
-      chestTestNote('Ошибка теста: '+error.message,{
-        errorName:error.name, errorStack:String(error.stack || '').slice(0,1400)
-      });
-    }
-  };
-
-
-  // ===== ОДНОКРАТНАЯ ПРОВЕРКА СБОРА ДОХОДА =====
-  // Не вызывает игровое API, не нажимает магазины или платные предложения.
-  // Требует видимый диалог дохода и ровно одну кнопку «СОБРАТЬ».
-  let chestCollectAttempted = false;
-  function chestElementVisible(element) {
-    if (!element || !element.isConnected) return false;
-    const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return rect.width > 5 && rect.height > 5 &&
-      rect.bottom > 0 && rect.top < innerHeight &&
-      rect.right > 0 && rect.left < innerWidth &&
-      style.display !== 'none' && style.visibility !== 'hidden' &&
-      style.pointerEvents !== 'none';
-  }
-  const chestClean = text => String(text || '').replace(/\s+/g, ' ').trim();
-
-  $('chestCollectTest').onclick = () => {
-    if (chestCollectAttempted) {
-      chestTestNote('В этой вкладке тест сбора уже запускался. Повтор заблокирован.',{
-        mode:'chest-collect-test',stage:'repeat-blocked'
-      });
-      return;
-    }
-    chestTestLog = {};
-    try {
-      const candidates = [...document.querySelectorAll(
-        'button.buildings-income-modal__button'
-      )].filter(chestElementVisible).filter(el =>
-        /^собрать$/i.test(chestClean(el.innerText || el.value || el.textContent)) &&
-        !el.disabled && el.getAttribute('aria-disabled') !== 'true'
-      );
-      const details = candidates.map(element => {
-        let parent = element.parentElement, match = null, depth = 0;
-        for (; parent && parent !== document.body && depth < 9;
-          parent = parent.parentElement, depth++) {
-          const label = chestClean(parent.innerText || parent.textContent);
-          const rect = parent.getBoundingClientRect();
-          if (/время получения дохода/i.test(label) &&
-              rect.width > 80 && rect.height > 50 &&
-              rect.width < innerWidth * 0.95 &&
-              rect.height < innerHeight * 0.95) {
-            match = {depth,ancestorTag:parent.tagName,dialogText:label.slice(0,350)};
-            break;
-          }
-        }
-        return {label:chestClean(element.innerText || element.textContent),
-          tag:element.tagName,className:String(element.className || '').slice(0,100),
-          match};
-      });
-      chestTestNote('Проверка окна дохода',{
-        mode:'chest-collect-test',stage:'find-collect-button',
-        collectCandidates:details
-      });
-      const accepted = details.map((d,i)=>d.match ? candidates[i] : null)
-        .filter(Boolean);
-      if (accepted.length !== 1) {
-        chestTestNote('Безопасный сбор отменён: не подтверждена единственная кнопка дохода.',{
-          mode:'chest-collect-test',stage:'no-unique-income-button',
-          acceptedCount:accepted.length
-        });
-        return;
-      }
-      // Блокировка устанавливается ДО клика, чтобы избежать двойного списания.
-      chestCollectAttempted = true;
-      const button = accepted[0];
-      chestTestNote('Выполняю однократное нажатие СОБРАТЬ',{
-        mode:'chest-collect-test',stage:'before-click'
-      });
-      button.click();
-      chestRememberCollectAttempt();
-      chestTestNote('Нажатие отправлено. Проверь, получен ли доход.',{
-        mode:'chest-collect-test',stage:'clicked',clicked:true
-      });
-    } catch (error) {
-      chestTestNote('Ошибка тестового сбора: ' + error.message,{
-        mode:'chest-collect-test',stage:'error',
-        errorName:error.name,errorStack:String(error.stack || '').slice(0,1400)
-      });
-    }
-  };
-
-
-  // ===== АВТОСБОР ДОХОДА НА КАРТЕ =====
-  // Выключен по умолчанию. Только подтверждённые 5 income-маркеров
-  // и единственная кнопка "Собрать" в модальном окне дохода.
-  // Ни платные предложения, ни другие кнопки здесь не нажимаются.
-  const CHEST_AUTO_COOLDOWN_MS = 30 * 60 * 1000;
-  const CHEST_AUTO_LAST_ATTEMPT_KEY = 'hk-helper-income-auto-last-attempt-v1';
-  const CHEST_AUTO_MARKER_IDS = [
-    'city_name_ftue_europe_building_1',
-    'city_name_ftue_europe_building_2',
-    'city_name_ftue_europe_building_resources_1',
-    'city_name_ftue_europe_building_resources_2',
-    'city_name_ftue_europe_building_resources_3'
-  ];
-  let chestAutoPhase = 'idle';
-  let chestAutoPhaseStarted = 0;
-  let chestAutoLastProbe = 0;
-  let chestAutoRetryAfter = 0;
-  let chestAutoLastMessage = '';
-  let chestAutoLastTickAt = 0;
-  let chestAutoLastTickGapMs = 0;
-
-  function updateChestAutoToggle() {
-    $('chestAutoToggle').textContent =
-      uiSettings.autoChests ? '⏸ Автосбор: ВКЛ' : '▶ Автосбор: ВЫКЛ';
-    if (!uiSettings.autoChests) {
-      chestAutoPhase = 'idle';
-      $('chestAutoStatus').textContent = 'Автосбор выключен';
-    } else if (chestAutoLastMessage) {
-      $('chestAutoStatus').textContent = chestAutoLastMessage;
-    } else {
-      $('chestAutoStatus').textContent = 'Ожидаю доход на карте…';
-    }
-  }
-
-  function chestAutoNote(step, extra = {}) {
-    if (step === chestAutoLastMessage && !Object.keys(extra).length) return;
-    chestAutoLastMessage = step;
-    $('chestAutoStatus').textContent = step;
-    chestScanStatus(step);
-    chestScanReport = JSON.stringify({
-      mode: 'chest-auto-collect',
-      version: '3.16.5',
-      time: new Date().toISOString(),
-      url: location.href,
-      step,
-      phase: chestAutoPhase,
-      pageVisibility: document.visibilityState,
-      pageHasFocus: document.hasFocus(),
-      millisecondsSincePreviousTick: chestAutoLastTickGapMs,
-      ...extra
-    }, null, 2);
-  }
-
-  function chestAutoCooldownUntil() {
-    let last = 0;
-    try {
-      last = Number(localStorage.getItem(CHEST_AUTO_LAST_ATTEMPT_KEY)) || 0;
-    } catch {}
-    return last > 0 && last <= Date.now() ? last + CHEST_AUTO_COOLDOWN_MS : 0;
-  }
-
-  function chestRememberCollectAttempt() {
-    try {
-      localStorage.setItem(CHEST_AUTO_LAST_ATTEMPT_KEY, String(Date.now()));
-    } catch {}
-  }
-
-  function chestIncomeModalVisible() {
-    return [...document.querySelectorAll('[class*="buildings-income-modal"]')]
-      .some(element => {
-        if (!chestElementVisible(element)) return false;
-        const rect = element.getBoundingClientRect();
-        return rect.width >= 80 && rect.height >= 50 &&
-          /время получения дохода/i.test(chestClean(element.innerText || ''));
-      });
-  }
-
-  function chestAutoCollectButton() {
-    const candidates = [...document.querySelectorAll(
-      'button.buildings-income-modal__button'
-    )].filter(chestElementVisible).filter(button =>
-      !button.disabled &&
-      button.getAttribute('aria-disabled') !== 'true' &&
-      /^собрать$/i.test(chestClean(
-        button.innerText || button.textContent || button.value
-      ))
-    ).filter(button => {
-      let parent = button.parentElement;
-      for (let depth = 0; parent && depth < 9; depth++, parent = parent.parentElement) {
-        const rect = parent.getBoundingClientRect();
-        if (rect.width >= 80 && rect.height >= 50 &&
-            rect.width < innerWidth * 0.95 && rect.height < innerHeight * 0.95 &&
-            chestElementVisible(parent) &&
-            /время получения дохода/i.test(chestClean(parent.innerText || ''))) {
-          return true;
-        }
-      }
-      return false;
-    });
-    return candidates.length === 1 ? candidates[0] : null;
-  }
-
-  function chestAutoIncomeMarker() {
-    const map = getMap();
-    if (!map || !map.project || !map.getCanvas || !map.getLayer ||
-        !map.queryRenderedFeatures || typeof map.fire !== 'function' ||
-        !map.getLayer('markers-layer')) return null;
-
-    const canvas = map.getCanvas();
-    const width = canvas.clientWidth, height = canvas.clientHeight;
-    if (!width || !height) return null;
-    const matches = map.queryRenderedFeatures([[0,0],[width,height]],{
-      layers:['markers-layer']
-    }).filter(feature =>
-      feature.geometry?.type === 'Point' &&
-      feature.properties?.hasIncome === true &&
-      CHEST_AUTO_MARKER_IDS.includes(feature.properties?.buildingId)
-    );
-    const unique = new Map(matches.map(feature =>
-      [feature.properties.buildingId, feature]
-    ));
-    // Все пять маркеров должны одновременно показывать активный доход.
-    if (!CHEST_AUTO_MARKER_IDS.every(id => unique.has(id))) return null;
-
-    const feature = unique.get('city_name_ftue_europe_building_1');
-    const point = map.project(feature.geometry.coordinates);
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y) ||
-        point.x < 15 || point.y < 15 ||
-        point.x > width - 15 || point.y > height - 15) return null;
-
-    const x = Math.round(point.x), y = Math.round(point.y);
-    const hits = map.queryRenderedFeatures([[x-5,y-5],[x+5,y+5]],{
-      layers:['markers-layer']
-    });
-    if (!hits.some(hit =>
-      hit.properties?.buildingId === feature.properties.buildingId
-    )) return null;
-    return {map,canvas,point,id:feature.properties.buildingId};
-  }
-
-  function chestAutoTick() {
-    if (!uiSettings.autoChests) return;
-
-    // Вкладка может быть скрыта при блокировке Windows или свёртывании
-    // Яндекс Браузера. Не останавливаем сбор лишь из-за hidden:
-    // браузер по-прежнему вправе сам ограничивать фоновые таймеры.
-    const now = Date.now();
-    chestAutoLastTickGapMs = chestAutoLastTickAt
-      ? Math.max(0, now - chestAutoLastTickAt) : 0;
-    chestAutoLastTickAt = now;
-    const remaining = chestAutoCooldownUntil() - now;
-    if (remaining > 0) {
-      chestAutoPhase = 'idle';
-      const minutes = Math.ceil(remaining / 60000);
-      chestAutoNote('Защита от повторов: ещё ' + minutes + ' мин.');
-      return;
-    }
-
-    if (chestAutoPhase === 'opening') {
-      // Собираем только окно, открытое непосредственно этим автосбором.
-      const button = chestAutoCollectButton();
-      if (button && chestIncomeModalVisible()) {
-        chestAutoPhase = 'collecting';
-        // Сохраняем блокировку ДО клика, чтобы повтор не случился
-        // даже при перезагрузке или медленном ответе сервера.
-        chestRememberCollectAttempt();
-        try {
-          button.click();
-          chestAutoNote('Команда «Собрать» отправлена. Проверяю карту.',{
-            stage:'clicked',clicked:true
-          });
-        } catch (error) {
-          chestAutoNote('Ошибка нажатия «Собрать»: ' + error.message,{
-            stage:'collect-error',errorName:error.name
-          });
-        } finally {
-          chestAutoPhase = 'idle';
-        }
-        return;
-      }
-      if (now - chestAutoPhaseStarted < 8000) return;
-      chestAutoPhase = 'idle';
-      chestAutoRetryAfter = now + 120000;
-      chestAutoNote('Окно дохода не появилось. Повторная проверка через 2 мин.',{
-        stage:'modal-timeout'
-      });
-      return;
-    }
-
-    if (chestAutoPhase !== 'idle' || now < chestAutoRetryAfter) return;
-    if (now - chestAutoLastProbe < 15000) return;
-    chestAutoLastProbe = now;
-
-    // Не вмешиваемся в уже открытое пользователем окно дохода.
-    if (chestIncomeModalVisible()) {
-      chestAutoNote('Уже открыто окно дохода. Закрой его для автосбора.');
-      return;
-    }
-
-    try {
-      const target = chestAutoIncomeMarker();
-      if (!target) {
-        chestAutoNote('Ожидаю пять доступных маркеров дохода на карте…');
-        return;
-      }
-      const {map,canvas,point,id} = target;
-      const rect = canvas.getBoundingClientRect();
-      const clientX = rect.left + point.x, clientY = rect.top + point.y;
-      let originalEvent;
-      try {
-        originalEvent = new MouseEvent('click',{
-          bubbles:true,cancelable:true,clientX,clientY
-        });
-      } catch {
-        originalEvent = document.createEvent('Event');
-        originalEvent.initEvent('click',true,true);
-      }
-      chestAutoPhase = 'opening';
-      chestAutoPhaseStarted = now;
-      chestAutoNote('Открываю доступный доход…',{stage:'opening',buildingId:id});
-      map.fire('click',{
-        point,lngLat:map.unproject(point),originalEvent
-      });
-      setTimeout(chestAutoTick,600);
-    } catch (error) {
-      chestAutoPhase = 'idle';
-      chestAutoRetryAfter = now + 120000;
-      chestAutoNote('Ошибка автосбора: ' + error.message,{
-        stage:'open-error',errorName:error.name
-      });
-    }
-  }
-
-  $('chestAutoToggle').onclick = () => {
-    uiSettings.autoChests = !uiSettings.autoChests;
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(uiSettings)); } catch {}
-    applyUiSettings();
-    updateChestAutoToggle();
-    if (uiSettings.autoChests) setTimeout(chestAutoTick,100);
-  };
-  updateChestAutoToggle();
-  // В фоне таймер может срабатывать реже: каждый фактический вызов
-  // всё равно проверяет доход. Это не обходит приостановку браузером.
-  setInterval(chestAutoTick,2000);
-
-  function chestAutoResumeCheck() {
-    if (!uiSettings.autoChests) return;
-    // После пробуждения, возврата вкладки или восстановления страницы
-    // не дожидаемся следующего 15-секундного сканирования маркеров.
-    // Постоянная 30-минутная защита от повторного получения сохраняется.
-    chestAutoLastProbe = 0;
-    setTimeout(chestAutoTick,100);
-  }
-  document.addEventListener('visibilitychange', chestAutoResumeCheck);
-  window.addEventListener('focus', chestAutoResumeCheck);
-  window.addEventListener('pageshow', chestAutoResumeCheck);
-  window.addEventListener('online', chestAutoResumeCheck);
-  // Chrome/Яндекс Браузер может замораживать вкладки по Page Lifecycle.
-  document.addEventListener('resume', chestAutoResumeCheck);
-
-  $('chestScanRun').onclick = scanMapChests;
-  $('chestScanCopy').onclick = () => {
-    const text = chestScanReport;
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(() =>
-        chestScanStatus('Отчёт скопирован. Пришли его в чат.')
-      ).catch(() => window.prompt('Скопируй отчёт:', text));
-    } else {
-      window.prompt('Скопируй отчёт:', text);
-    }
-  };
 
   // ===== БЕЗОПАСНЫЙ СБОР БЕСПЛАТНЫХ ПОДАРКОВ =====
   // Никаких API-вызовов, обхода таймеров или платных покупок.
@@ -3160,7 +2533,7 @@
       section:giftSection(element)
     }));
     return JSON.stringify({
-      version:'3.16.5',
+      version:SCRIPT_VERSION,
       browser:navigator.userAgent.slice(0,180),
       pageVisibility:document.visibilityState,
       autoGifts:uiSettings.autoGifts,
