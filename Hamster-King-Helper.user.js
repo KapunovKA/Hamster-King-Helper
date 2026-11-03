@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.10
-// @description  Слухи, пазл, купоны, красные/зелёные клетки и Enter
+// @version      3.16.11
+// @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
@@ -63,8 +63,6 @@
 
   // ===== ИНТЕРФЕЙС =====
 
-  // iPhone получает интерфейс нижней панели; Mac и другие устройства
-  // сохраняют прежнюю компактную плавающую панель без изменений.
   const isIPhone = /iPhone|iPod/i.test(navigator.userAgent);
   const host = document.createElement('div');
   host.id = HOST;
@@ -78,8 +76,6 @@
     touchAction: 'manipulation'
   });
   if (isIPhone) {
-    // Дочерние фиксированные элементы сами управляют кликами.
-    // Свободная область экрана по-прежнему доступна игре.
     Object.assign(host.style, {
       top: 'auto',
       right: '0',
@@ -203,7 +199,6 @@
     .coupon-code:focus-visible, .coupon-refresh:focus-visible { outline:2px solid #a8d8ff; outline-offset:2px; }
     #couponStatus { min-height:0; max-height:none; margin-top:4px; }
 
-    /* v3.8 compact dashboard */
     .panel { width:min(370px,calc(100vw - 16px)); max-height:78dvh; padding:12px; border-radius:18px; background:#171d2b; border-color:#52617c; box-shadow:0 12px 35px #000b; }
     .head { margin-bottom:12px; font-size:13px; gap:7px; }
     .head span { flex:1; }
@@ -229,8 +224,6 @@
     .dash-secondary .dash-details { margin-top:6px; }
     @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
 
-    /* Только iPhone: нижняя выдвижная панель, удобная для касаний.
-       Desktop-стили выше остаются неизменными. */
     .mobile-backdrop { display:none; }
     :host(.hk-iphone) .mobile-backdrop:not(.hidden) {
       display:block;
@@ -363,6 +356,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoAck"> Автоматически нажимать «Понятно» во всей игре</label>
       <div id="autoAckStatus" class="small" aria-live="polite">Ожидаю кнопку «Понятно»…</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoDigSite"> ⛏️ Автонажатие в окне «Место раскопок» (расходует ресурсы)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -450,7 +444,8 @@
     showRumors: true,
     autoGifts: false,
     autoAck: true,
-    autoPuzzleAction: true
+    autoPuzzleAction: true,
+    autoDigSite: true
   };
 
   let uiSettings = { ...DEFAULT_SETTINGS };
@@ -464,9 +459,6 @@
     }
   } catch {}
 
-  // Каждая галочка видимости управляет ВСЕМИ относящимися к ней
-  // элементами, включая карточки и дополнительные кнопки действий.
-  // Настройки автосбора — отдельные функции, не переключатели видимости.
   const visibleSections = {
     diagnostics: [$('section-diagnostics')],
     manual: [$('section-manual')],
@@ -483,7 +475,6 @@
         element.classList.toggle('hidden', !uiSettings[key]);
       }
     }
-    // Если не осталось ни одной нижней кнопки, убираем и её контейнер.
     $('dashActions').classList.toggle(
       'hidden', !uiSettings.puzzle
     );
@@ -743,9 +734,6 @@
 
 
   // ===== ПОДСВЕТКА СЛУХОВ: МОСТ ДЛЯ iPHONE / SAFARI =====
-  // Userscripts на iOS может выполнять код в изолированном JS-мире,
-  // где React-ссылки на MapLibre недоступны. Внедрённый скрипт работает
-  // в мире самой страницы и только добавляет/удаляет слой карты.
   function iphonePageMapWorker(channel) {
     'use strict';
     const layerId = 'hk-unified-rumors';
@@ -1003,8 +991,6 @@
     renderStatus();
   }
 
-  // Игра рисует галочку ✓ в areas-symbol-layer, если есть rumorId.
-  // Используем тот же признак непосредственно в стиле MapLibre.
   const RUMOR_COLOR = [
     'case',
     ['has', 'rumorId'],
@@ -1175,8 +1161,6 @@
 
   // ===== ЗАГРУЗКА СЛУХОВ =====
 
-  // Слухи меняются каждый игровой день в 15:00 по Москве (UTC+3).
-  // Выбор первого свежего источника запоминаем до следующего обновления.
   const RUMOR_LOCK_KEY = 'hk-rumors-first-source-v1';
   const RUMOR_POLL_MS = 3 * 60 * 1000;
   let rumorLock = null;
@@ -1212,8 +1196,6 @@
     const result = emptyRumors();
     const normalized = String(text || '').replace(/\u00a0/g,' ')
       .replace(/[：﹕]/g,':');
-    // Поддерживаем "Москва: [1:2] [3:4] [5:6]" (Telegram)
-    // и "01:02﹕03:04﹕05:06 Москва" (сайт).
     const lines = normalized.split(/\r?\n/);
     for (const lineRaw of lines) {
       const line = lineRaw.trim();
@@ -1241,8 +1223,6 @@
     return doc.body?.textContent || '';
   }
 
-  // Проверяем не только координаты, но и дату публикации сайта:
-  // без этой проверки можно подсветить вчерашние слухи.
   function siteRumorDay(html) {
     const text = rumorPlainText(html);
     const match = text.match(/(\d{1,2})\s*(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)?\s*[-–—]\s*(\d{1,2})\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+(\d{4})\s*[-–—:]?\s*(?:координат|слух)/i);
@@ -1266,8 +1246,6 @@
       if (!body || !time) continue;
       const timestamp = Date.parse(time.getAttribute('datetime') || '');
       if (!Number.isFinite(timestamp) || rumorDayKey(timestamp) !== day) continue;
-      // В DOMParser на iPhone innerText может не сохранять переносы <br>.
-      // Создаём текст с явными переносами между строками городов.
       const content = body.cloneNode(true);
       content.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
       content.querySelectorAll('p,div').forEach(el => el.append('\n'));
@@ -1277,7 +1255,6 @@
       if (!rumorValid(parsed)) continue;
       posts.push({timestamp,data:parsed});
     }
-    // Первый пост с полным набором слухов за нужный день.
     posts.sort((a,b) => a.timestamp-b.timestamp);
     return posts[0]?.data || null;
   }
@@ -1311,7 +1288,6 @@
   function acceptRumorSource(data,source,day,manual = false) {
     if (day !== rumorDayKey() || (!manual && rumorLock?.day === day)) return false;
     if (!rumorValid(data,manual ? 1 : 8)) return false;
-    // Зафиксируем до обновления карты: следующий ответ сети не заменит первый.
     rumorLock = {day,source};
     clearHighlight();
     rumors = data;
@@ -1353,7 +1329,7 @@
             timeout: 20000,
 
             onload(response) {
-              if (                response.status >= 200 &&
+              if (response.status >= 200 &&
                 response.status < 300
               ) {
                 resolve(response.responseText);
@@ -1462,8 +1438,6 @@
   };
 
   // ===== «ПОНЯТНО» ВО ВСЕЙ ИГРЕ И СЕАНС ДЕЙСТВИЙ ПАЗЛА =====
-  // Подтверждения работают независимо от запуска пазла.
-  // Кнопки действий с расходом ресурсов по-прежнему ограничены сеансом пазла.
   const PUZZLE_ACK_SESSION_MS = 45 * 60 * 1000;
   let puzzleAckUntil = 0;
   let autoAckLastButton = null;
@@ -1517,9 +1491,6 @@
       (allowNoninteractiveLabel || style.pointerEvents !== 'none') &&
       style.opacity !== '0';
   }
-  // Отбираем самый внутренний элемент с точным текстом «Понятно».
-  // Настоящая кнопка может быть как button, так и div/span без class=button.
-  // Клик по внутренней подписи всплывает в родительский React-обработчик.
   function puzzleAckFindButton() {
     const nodes = document.querySelectorAll(
       'button,[role="button"],div,span,p,a,input[type="button"],input[type="submit"]'
@@ -1528,8 +1499,6 @@
     for (const node of nodes) {
       if (puzzleAckText(node) !== 'понятно' ||
           [...node.children].some(child => puzzleAckText(child) === 'понятно') ||
-          // Надпись внутри кнопки может иметь pointer-events:none.
-          // Саму кнопку отдельно проверяем на возможность нажатия.
           !puzzleAckVisible(node, true)) continue;
       const rect = node.getBoundingClientRect();
       const hit = document.elementFromPoint(
@@ -1540,7 +1509,6 @@
            hit.contains(node)))) continue;
       const target = hit.closest('button,[role="button"],a,[onclick]') || hit;
       if (!puzzleAckVisible(target)) continue;
-      // На одной кнопке могут совпасть несколько текстовых обёрток.
       if (!matched.some(item => item.node === target)) {
         matched.push({node:target,label:node});
       }
@@ -1553,8 +1521,6 @@
       const rect = parent.getBoundingClientRect();
       if (rect.width >= innerWidth * .95 && rect.height >= innerHeight * .85) break;
       const text = puzzleAckText(parent);
-      // Название награды не задано: любое содержимое окна,
-      // где есть ещё хотя бы один текстовый элемент помимо кнопки.
       if (text.length >= 14 && text.length <= 280 &&
           text.includes('понятно')) return text;
     }
@@ -1564,9 +1530,6 @@
     const rect = target.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
-    // Ранее игра не всегда реагировала на один .click().
-    // Отправляем обычную последовательность событий указателя
-    // на уже проверенный видимый элемент, не на координаты вслепую.
     const common = {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0};
     if (typeof PointerEvent === 'function') {
       target.dispatchEvent(new PointerEvent('pointerdown',{
@@ -1592,7 +1555,6 @@
   function autoAckTick() {
     if (!uiSettings.autoAck) return;
     if (document.visibilityState !== 'visible') return;
-    // Окна текущего сбора подарков обслуживает их собственный обработчик.
     if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
 
     try {
@@ -1606,7 +1568,6 @@
       const context = puzzleAckContext(match.label);
       if (button === autoAckLastButton && context === autoAckLastContext)
         return;
-      // Не повторяем клик, пока всё то же окно остаётся видимым.
       autoAckLastButton = button;
       autoAckLastContext = context;
       puzzleAckDispatchClick(button);
@@ -1617,10 +1578,8 @@
         'Не удалось нажать «Понятно»: ' + error.message;
     }
   }
+
   // ===== ПАЗЛ: КНОПКА ДЕЙСТВИЯ В КАРТОЧКАХ ЛОКАЦИЙ =====
-  // Эти кнопки могут расходовать мечи, ягоды, монеты и удочки.
-  // Нажимаем в распознанной карточке только в запущенном режиме пазла.
-  // Не подтверждаем выход из локации и покупки за реальные деньги.
   const PUZZLE_ENEMY_MARKER =
     /^(?:можно\s+(?:отыскать|найти|встретить)|содержит|(?:включ[её]нная|выключ[её]нная|горящая)\s+лампочка)$/i;
   const PUZZLE_ACTION_UNSAFE =
@@ -1640,14 +1599,10 @@
     for (const label of priceLabels) {
       const cost = puzzleActionEligibleCost(label);
       if (!cost || cost > 9999 || !puzzleAckVisible(label,true)) continue;
-      // Игнорируем вложенные числовые подписи: достаточно самого
-      // внутреннего элемента с числом, чтобы не дублировать результат.
       if ([...label.children].some(child =>
         puzzleActionEligibleCost(child) === cost)) continue;
       let candidate = null;
       let node = label;
-      // У игровых кнопок бывает не button, а div с вложенным значком
-      // меча и текстом стоимости.
       for (let depth = 0; node && node !== dialog && depth < 5;
            depth++, node = node.parentElement) {
         const r = node.getBoundingClientRect();
@@ -1656,7 +1611,6 @@
             r.height > rect.height * .24) continue;
         const cx = r.left + r.width/2;
         const cy = r.top + r.height/2;
-        // Кнопка боя расположена в нижней центральной части модалки.
         if (cy < rect.top + rect.height*.64 ||
             Math.abs(cx - (rect.left+rect.width/2)) > rect.width*.28) continue;
         if (!puzzleAckVisible(node)) continue;
@@ -1675,7 +1629,6 @@
       if (!candidate) continue;
       if (!actions.has(candidate)) actions.set(candidate,cost);
     }
-    // Не угадываем, если в окне обнаружено несколько разных действий.
     return actions.size === 1
       ? {button:[...actions.keys()][0],cost:[...actions.values()][0]}
       : null;
@@ -1696,13 +1649,10 @@
         if (box.width < 185 || box.height < 185 ||
             box.height > innerHeight*1.1 ||
             box.width > innerWidth*1.1) continue;
-        // Не ищем кнопки в общей оболочке игры.
         if (box.width >= innerWidth*.98 && box.height >= innerHeight*.92)
           break;
         const text = puzzleAckText(dialog);
         if (text.length < 55 || text.length > 2200) continue;
-        // В торговых карточках слова «покупка» и «магазин»
-        // допустимы: они расходуют обычные игровые ресурсы.
         if (PUZZLE_ACTION_UNSAFE.test(text)) continue;
         if (/лампочка/i.test(puzzleAckText(heading)) &&
             !/лампочка\s+горит|зажги\s+все\s+девять\s+лампочек/i.test(text))
@@ -1725,8 +1675,6 @@
     if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
     const match = puzzleActionFindCard();
     if (!match) {
-      // Новая карточка с тем же противником допустима после закрытия
-      // предыдущей: нужно хотя бы две проверки без окна между ними.
       if (++puzzleActionMissingTicks >= 2) {
         puzzleActionUsed = false;
         puzzleActionLastDialog = null;
@@ -1735,16 +1683,11 @@
       return;
     }
     puzzleActionMissingTicks = 0;
-    // Даже если React заменил весь DOM диалога, не повторяем расход
-    // мечей для той же карточки до её закрытия.
     if (puzzleActionUsed && puzzleActionLastTitle === match.title) return;
-    // Помечаем ДО клика; отсутствие ответа игры не вызовет
-    // повторного расхода мечей на этом же окне.
     puzzleActionUsed = true;
     puzzleActionLastDialog = match.dialog;
     puzzleActionLastTitle = match.title;
     try {
-      // Обычный .click() не всегда обрабатывается игровыми div-кнопками.
       puzzleAckDispatchClick(match.button);
       puzzleActionCount++;
       $('puzzleAckStatus').textContent =
@@ -1756,10 +1699,113 @@
     }
   }
 
+  // ===== МЕСТО РАСКОПОК: АВТОНАЖАТИЕ =====
+  // Ищет окно с заголовком «Место раскопок» и нажимает кнопку
+  // с ценой в нижней части диалога. Работает по настройке
+  // autoPuzzleAction (расходует ресурсы), независимо от сессии пазла.
+  let digLastDialog = null;
+  let digLastClickedAt = 0;
+  let digLastClickedLabel = '';
+  let digClickCount = 0;
+
+  function digSiteFindButton() {
+    const headings = document.querySelectorAll(
+      'div,span,p,h1,h2,h3,h4,h5,strong'
+    );
+    for (const heading of headings) {
+      if (puzzleAckText(heading) !== 'место раскопок' ||
+          !puzzleAckVisible(heading, true)) continue;
+      if ([...heading.children].some(c =>
+          puzzleAckText(c) === 'место раскопок')) continue;
+
+      let dialog = heading.parentElement;
+      for (let depth = 0; dialog && depth < 9;
+           depth++, dialog = dialog.parentElement) {
+        if (dialog === document.body || dialog === document.documentElement)
+          break;
+        const box = dialog.getBoundingClientRect();
+        if (box.width < 185 || box.height < 185 ||
+            box.height > innerHeight * 1.1 ||
+            box.width > innerWidth * 1.1) continue;
+        if (box.width >= innerWidth * .98 && box.height >= innerHeight * .92)
+          break;
+
+        const text = puzzleAckText(dialog);
+        if (text.length < 55 || text.length > 2200) continue;
+        if (!/копни/i.test(text)) continue;
+
+        if (/покинуть\s+локацию|ты\s+покинешь\s+локацию|не\s+сможешь\s+сюда\s+вернуться|отмена|₽|usdt|visa|mastercard/i.test(text))
+          continue;
+
+        const candidates = dialog.querySelectorAll(
+          'button,[role="button"],[class*="button"],[class*="Button"],div,span'
+        );
+        for (const btn of candidates) {
+          if (!puzzleAckVisible(btn) || btn.disabled ||
+              btn.getAttribute('aria-disabled') === 'true') continue;
+          if ([...btn.children].some(child =>
+              /\d{1,5}\s*$/.test(puzzleAckText(child)))) continue;
+
+          const btnText = puzzleAckText(btn);
+          if (!/\d{1,5}\s*$/.test(btnText) || btnText.length > 40) continue;
+
+          const r = btn.getBoundingClientRect();
+          if (r.top < box.top + box.height * 0.55) continue;
+          if (Math.abs((r.left + r.width / 2) -
+              (box.left + box.width / 2)) > box.width * 0.32) continue;
+
+          const hit = document.elementFromPoint(
+            r.left + r.width / 2, r.top + r.height / 2
+          );
+          if (!hit || !(btn === hit || btn.contains(hit) || hit.contains(btn)))
+            continue;
+
+          return { button: btn, dialog, label: btnText };
+        }
+      }
+    }
+    return null;
+  }
+
+  function digSiteTick() {
+    if (!uiSettings.autoDigSite) return;
+    if (document.visibilityState !== 'visible') return;
+    if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
+
+    const match = digSiteFindButton();
+    if (!match) {
+      digLastDialog = null;
+      digLastClickedLabel = '';
+      return;
+    }
+
+    const now = Date.now();
+    if (digLastDialog === match.dialog &&
+        digLastClickedLabel === match.label &&
+        now - digLastClickedAt < 4000) return;
+
+    digLastDialog = match.dialog;
+    digLastClickedLabel = match.label;
+    digLastClickedAt = now;
+
+    try {
+      puzzleAckDispatchClick(match.button);
+      digClickCount++;
+      if (!$('puzzleAckStatus').classList.contains('hidden')) {
+        $('puzzleAckStatus').textContent =
+          '⛏️ Раскопки: нажато (' + match.label +
+          '); всего: ' + digClickCount;
+      }
+    } catch (error) {
+      // silent
+    }
+  }
+
   setInterval(() => {
     autoAckTick();
     puzzleActionTick();
-  },500);
+    digSiteTick();
+  }, 500);
   updateAutoAckStatus();
 
   function puzzleNote(text) {
@@ -1768,8 +1814,6 @@
   }
 
   function puzzleSolver() {
-    // Внешний script работает в странице игры, а userscript с GM-грантами
-    // может работать в отдельном окружении Tampermonkey.
     const page = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     for (const scope of [page, window]) {
       const solver = scope.__HK_PUZZLE_SOLVER__;
@@ -1822,8 +1866,6 @@
             'Возможна ошибка или изменение внешнего скрипта.');
           return;
         }
-        // Сохраняем прежний запуск через подключение внешнего script.
-        // Дополнительный check() здесь мог бы запустить решение дважды.
         puzzleAckArm();
         puzzleNote('модуль загружен. Если поле не решается, ' +
           'нажми «Запустить пазл» ещё раз.');
@@ -1955,7 +1997,8 @@
     }
   }
 
-  async function loadCoupons() {    if (loadingCoupons) return;
+  async function loadCoupons() {
+    if (loadingCoupons) return;
 
     loadingCoupons = true;
     couponState = 'Проверяю публикации Telegram...';
@@ -2003,14 +2046,11 @@
 
   $('couponRefresh').onclick = loadCoupons;
 
-  // Автопроверка купонов каждые 30 минут, пока игра открыта.
-  // loadCoupons уже защищён от параллельных запросов.
   const COUPON_CHECK_INTERVAL_MS = 30 * 60 * 1000;
   setInterval(() => {
     if (document.visibilityState === 'visible') loadCoupons();
   }, COUPON_CHECK_INTERVAL_MS);
 
-  // Если вкладка долго была в фоне, обновляем купоны при возвращении.
   let lastCouponAutoCheck = Date.now();
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
@@ -2021,13 +2061,8 @@
 
 
   // ===== БЕЗОПАСНЫЙ СБОР БЕСПЛАТНЫХ ПОДАРКОВ =====
-  // Никаких API-вызовов, обхода таймеров или платных покупок.
-  // Работает только с видимыми кнопками на открытой странице магазина.
   let giftBusy = false;
   let giftClicks = 0;
-  // Вместо паузы 3 секунды отслеживаем реальное изменение кнопок.
-  // Повтор на том же элементе невозможен, пока его подпись не изменится
-  // (например, «Получить» -> таймер -> «Получить»).
   const giftClickedLabels = new WeakMap();
   const giftAwaitingChanges = new Set();
   function giftObserveButtonChanges() {
@@ -2047,8 +2082,6 @@
     giftAwaitingChanges.add(button);
   }
   const giftStatus = message => { $('giftStatus').textContent = message; };
-  // Подписи React иногда имеют pointer-events:none: они всё равно
-  // видимы. Для кнопок требуем реальную возможность нажатия.
   const giftVisible = (element, allowText = false) => {
     if (!element || !element.isConnected) return false;
     const rect = element.getBoundingClientRect();
@@ -2063,20 +2096,17 @@
   const giftText = element => (element?.innerText || element?.textContent || '')
     .replace(/\s+/g, ' ').trim().toLowerCase();
   function giftSection(button) {
-    // Находим ближайший ограниченный блок карточки/подарка, не весь документ.
     let node = button.parentElement;
     for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
       const text = giftText(node);
       if (text.length > 1400) break;
       if (/vip\s*30|купить|стоимость|цена|оплатить|пополнить|₽|\$|usdt/i.test(text)) return null;
       if (/ежедневный подарок|получить\s*\(\s*\d+\s*\/\s*5\s*\)/i.test(text)) return 'daily';
-      // Для трёх карточек под заголовком «Подарки» — только явно бесплатные.
       if (/подарки/i.test(text) && /получить/i.test(text) && text.length < 900) return 'gifts';
     }
     return null;
   }
   function giftShopOpen() {
-    // Яндекс Браузер: заголовки магазина могут иметь pointer-events:none.
     return Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p'))
       .some(el => el.children.length < 4 && giftVisible(el,true) &&
         /ежедневный подарок/i.test(giftText(el)) && giftText(el).length < 90);
@@ -2088,7 +2118,6 @@
     )).filter(element => {
       if (element.matches('button,[role="button"]')) return true;
       if (element.closest('button,[role="button"]')) return false;
-      // Не выбирать обёртку вокруг настоящей кнопки с тем же названием.
       return ![...element.querySelectorAll('button,[role="button"]')]
         .some(child => giftText(child) === giftText(element));
     });
@@ -2098,7 +2127,6 @@
       if (!/^получить(?:\s*\(\s*\d+\s*\/\s*5\s*\))?$/.test(label)) continue;
       const kind = giftSection(button);
       if (!kind) continue;
-      // Сначала ежедневная цепочка, затем остальные бесплатные награды.
       if (kind === 'daily') return button;
     }
     for (const button of buttons) {
@@ -2108,8 +2136,6 @@
     }
     return null;
   }
-  // Окно предложения после бесплатного подарка.
-  // Нажимаем только доступную кнопку «Пропустить»/«Продолжить» без дополнительного ожидания таймера.
   let giftManualUntil = 0;
   let giftFlowActive = false;
   const GIFT_OFFER_TITLE = /сделка стратега|доля капо|выбор босса/i;
@@ -2119,7 +2145,6 @@
         GIFT_OFFER_TITLE.test(giftText(el)) && giftText(el).length < 90);
   }
   function giftSkipInOfferContext(node) {
-    // «Продолжить» в другом игровом окне не является пропуском рекламы.
     let parent = node.parentElement;
     for (let depth = 0; parent && depth < 9;
          depth++, parent = parent.parentElement) {
@@ -2139,9 +2164,6 @@
     }
     return false;
   }
-  // Реальная кнопка в Яндекс Браузере: BUTTON.button_tertiary,
-  // внутри которого SPAN «Пропустить». Не определяем кнопку через
-  // elementFromPoint в центре подписи: это ненадёжно для таких окон.
   function giftSafeSkipControl(button, label) {
     if (!button || !giftVisible(button) || button.disabled ||
         button.getAttribute('aria-disabled') === 'true' ||
@@ -2156,8 +2178,6 @@
   }
   function giftSafeAdvanceTarget() {
     if (!giftFlowActive) return null;
-    // Приоритет настоящим кнопкам; выключенные нельзя обходить
-    // нажатием на их внутренние span.
     const buttons = [...document.querySelectorAll('button,[role="button"]')];
     const skip = buttons.filter(button =>
       giftSafeSkipControl(button,'пропустить'));
@@ -2170,7 +2190,6 @@
     if (buttons.some(button =>
         /^(пропустить|продолжить)$/.test(giftText(button)))) return null;
 
-    // Запасной вариант для настоящих div-кнопок без HTML button.
     const fallback = new Set();
     for (const node of document.querySelectorAll('div,span,a')) {
       const label = giftText(node);
@@ -2184,13 +2203,9 @@
     return fallback.size === 1 ? [...fallback][0] : null;
   }
   function giftOfferVisible() {
-    // В магазине видны статические рекламные карточки. Пока
-    // наш сборщик ещё не нажимал подарок, они не должны блокировать его.
     if (!giftFlowActive) return false;
     if (giftSafeAdvanceTarget()) return true;
     if (!giftOfferTitleVisible()) return false;
-    // Если кнопку бесплатного подарка реально можно нажать,
-    // не принимаем обычную рекламную карточку за всплывающее окно.
     const candidate = giftCandidate();
     if (candidate) {
       const rect = candidate.getBoundingClientRect();
@@ -2207,8 +2222,6 @@
     const hit = document.elementFromPoint(x, y);
     if (!hit || (!target.contains(hit) && !hit.contains(target))) return false;
     const actual = hit.closest('button,[role="button"],a') || hit;
-    // PointerEvent может отсутствовать в окружениях расширения.
-    // В этом случае обычный click всё равно выполняется.
     const common = {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0};
     if (typeof PointerEvent === 'function') {
       actual.dispatchEvent(new PointerEvent('pointerdown',{
@@ -2228,7 +2241,6 @@
   }
   const giftSkipAttempts = new WeakMap();
   function giftClickSafeSkip(target) {
-    // Клик прямо по React BUTTON, а не по внутреннему span.
     if (target.matches('button,[role="button"]') &&
         giftSafeSkipControl(target,giftText(target))) {
       target.click();
@@ -2249,8 +2261,6 @@
     let attempt = giftSkipAttempts.get(target);
     if (attempt && now - attempt.started > 25000) attempt = null;
     if (!giftActionReady(target)) {
-      // Однократный click может не сработать в Яндекс Браузере.
-      // Повторяем только безопасный пропуск до 3 раз с паузой 4 сек.
       if (!attempt || now - attempt.last < 4000 || attempt.count >= 3) {
         giftStatus(attempt?.count >= 3
           ? '«Пропустить» не реагирует после 3 попыток. См. отчёт подарков.'
@@ -2273,8 +2283,6 @@
     }
     return true;
   }
-  // Подтверждение успешно полученного ежедневного подарка.
-  // Не закрываем посторонние диалоги и не нажимаем платные предложения.
   function confirmReceivedGift() {
     const heading = Array.from(document.querySelectorAll('div,span,h1,h2,h3,h4'))
       .find(el => el.children.length < 4 && giftVisible(el,true) &&
@@ -2307,10 +2315,8 @@
 
   async function collectGifts(manual = false) {
     if (giftBusy) return;
-    // Достаточно времени на всю цепочку при замедленных фоновых таймерах.
     if (manual) giftManualUntil = Date.now() + 15 * 60 * 1000;
     if (!manual && !uiSettings.autoGifts && Date.now() > giftManualUntil && !giftFlowActive) return;
-    // Освобождаем кнопку только после изменения текста или удаления из DOM.
     giftObserveButtonChanges();
     if (confirmReceivedGift()) return;
     if (advanceGiftOffer()) return;
@@ -2324,7 +2330,6 @@
     }
     const button = giftCandidate();
     if (!button) {
-      // Сообщаем, когда таймер ещё идёт, или когда разметка отличается.
       const labels = [...document.querySelectorAll(
         'button,[role="button"],[class*="button"],[class*="Button"]'
       )].filter(x => giftVisible(x,true)).map(giftText).filter(x =>
@@ -2335,14 +2340,10 @@
         : 'Кнопка «Получить» не найдена. См. «Отчёт подарков» в диагностике.');
       return;
     }
-    // Нет искусственного ожидания: «Получить» доступна после того,
-    // как таймер исчез и кнопка вновь показала разрешённую подпись.
     if (!giftActionReady(button)) {
       giftStatus('Жду изменения кнопки после предыдущего получения…');
       return;
     }
-    // Виртуальный click() может пройти сквозь перекрывающий диалог.
-    // Нажимаем только реально видимую и доступную кнопку.
     const rect = button.getBoundingClientRect();
     const underPointer = document.elementFromPoint(
       rect.left + rect.width / 2, rect.top + rect.height / 2
@@ -2353,8 +2354,6 @@
     }
     giftBusy = true;
     try {
-      // Ставим блокировку ДО клика: React может вызвать обработчик
-      // повторно синхронно во время обновления игры.
       giftMarkClicked(button);
       giftFlowActive = true;
       if (button.matches('button,[role="button"]')) {
@@ -2378,8 +2377,6 @@
     }
   }
   $('giftRun').onclick = () => collectGifts(true);
-  // Не выключаем сбор при Win+L или смене вкладки Яндекс Браузера.
-  // Полная заморозка вкладки самим браузером всё ещё останавливает JS.
   function giftAutoTick() {
     if (uiSettings.autoGifts || Date.now() < giftManualUntil) collectGifts();
   }
@@ -2393,7 +2390,6 @@
   window.addEventListener('focus',giftAutoResume);
   window.addEventListener('pageshow',giftAutoResume);
 
-  // Диагностика без консоли: только надписи, классы и состояние кнопок.
   function giftDiagnosticReport() {
     const buttons = [...document.querySelectorAll(
       'button,[role="button"],[class*="button"],[class*="Button"]'
