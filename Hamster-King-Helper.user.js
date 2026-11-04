@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.11
+// @version      3.16.12
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -212,6 +212,14 @@
     .dash-actions .btn { margin:0; font-size:12px; padding:10px 5px; }
     .dash-actions > .btn:only-child { grid-column:1 / -1; }
     .dash-status { margin:10px 0 0; padding:9px 11px; border:1px solid #38465f; border-radius:11px; background:#202a3b; font-size:11px; }
+    .auto-ack-control { display:flex; align-items:center; gap:8px; margin-top:8px; padding:6px 10px; border:1px solid #38465f; border-radius:10px; background:#202a3b; }
+    .auto-ack-toggle { display:flex; align-items:center; gap:8px; min-height:32px; cursor:pointer; font-size:12px; font-weight:600; flex-shrink:0; }
+    .auto-ack-toggle input { appearance:none; -webkit-appearance:none; position:relative; width:30px; height:18px; margin:0; border:1px solid #67738a; border-radius:12px; background:#434c60; cursor:pointer; flex:none; }
+    .auto-ack-toggle input::after { content:''; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; transition:transform .15s; }
+    .auto-ack-toggle input:checked { background:#258557; border-color:#39d98a; }
+    .auto-ack-toggle input:checked::after { transform:translateX(12px); }
+    .auto-ack-toggle input:focus-visible { outline:2px solid #a8d8ff; outline-offset:3px; }
+    .auto-ack-state { flex:1; min-width:0; font-size:10px; color:#c8d1df; text-align:right; overflow-wrap:anywhere; }
     .dash-details { margin-top:9px; border:1px solid #38465f; border-radius:10px; background:#202a3b; padding:8px 10px; }
     .dash-details summary { font-size:12px; font-weight:600; }
     .dash-details .block { margin:6px 0; }
@@ -326,6 +334,7 @@
     :host(.hk-iphone) textarea { font-size:16px; min-height:44px; }
     :host(.hk-iphone) .setting-row { min-height:44px; font-size:14px; }
     :host(.hk-iphone) .setting-row input { width:21px; height:21px; }
+    :host(.hk-iphone) .auto-ack-toggle { min-height:44px; font-size:14px; }
     :host(.hk-iphone) .coupon-refresh { min-width:44px; min-height:44px; }
     :host(.hk-iphone) .coupon-code { min-height:36px; font-size:15px; }
   </style>
@@ -353,8 +362,6 @@
       <label class="setting-row"><input type="checkbox" data-setting="diagnostics"> Диагностика и служебные кнопки</label>
       <div class="settings-title" style="margin-top:12px">⚡ Автоматизация</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoAck"> Автоматически нажимать «Понятно» во всей игре</label>
-      <div id="autoAckStatus" class="small" aria-live="polite">Ожидаю кнопку «Понятно»…</div>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoDigSite"> ⛏️ Автонажатие в окне «Место раскопок» (расходует ресурсы)</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
@@ -380,6 +387,13 @@
         <div id="coupons" class="coupon-codes" aria-label="Купоны — нажми на код, чтобы скопировать"></div>
         <div id="couponStatus" class="small" role="status" aria-live="polite">Проверяю купоны…</div>
       </div>
+    </div>
+    <div class="auto-ack-control">
+      <label class="auto-ack-toggle" title="Автоматически нажимать «Понятно» во всей игре">
+        <input type="checkbox" data-setting="autoAck" aria-label="Автоматически нажимать «Понятно» во всей игре">
+        <span>Авто «Понятно»</span>
+      </label>
+      <span id="autoAckStatus" class="auto-ack-state" role="status" aria-live="polite">Ожидание…</span>
     </div>
     <div id="status" class="dash-status good">Запуск...</div>
     <label id="section-city" class="dash-city" style="display:block">
@@ -1548,9 +1562,9 @@
   }
   function updateAutoAckStatus() {
     $('autoAckStatus').textContent = !uiSettings.autoAck
-      ? 'Авто «Понятно» выключено'
-      : autoAckCount ? '«Понятно» нажато: ' + autoAckCount
-      : 'Ожидаю кнопку «Понятно»…';
+      ? 'Выключено'
+      : autoAckCount ? 'Нажато: ' + autoAckCount
+      : 'Включено';
   }
   function autoAckTick() {
     if (!uiSettings.autoAck) return;
