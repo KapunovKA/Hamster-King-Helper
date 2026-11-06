@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.16
+// @version      3.16.17
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -2639,25 +2639,50 @@
   }
   function inventoryClose(dialog){
     if(!dialog)return false;
-    // Крестик относится к внешней карточке, не всегда к блоку кнопок.
-    for(let root=dialog,depth=0;root&&depth<6;root=root.parentElement,depth++){
-      if(root===document.body||root===document.documentElement)break;
-      const box=root.getBoundingClientRect();
-      if(depth>0&&box.height>innerHeight*.93)break;
-      const candidates=[...root.querySelectorAll(
-        'button,[role="button"],div,span,[class*="close"],[class*="Close"],[aria-label]'
-      )].filter(inventoryVisible).filter(el=>{
-        if(el===root)return false;
-        const r=el.getBoundingClientRect(),txt=inventoryText(el);
-        const name=String(el.className||'')+' '+String(el.getAttribute('aria-label')||'');
-        return (/(?:^|[\s_-])close(?:$|[\s_-])|закрыть/i.test(name)||
-          /^(?:×|✕|✖|x)$/i.test(txt)) &&
-          r.width<100&&r.height<100&&r.left>box.left+box.width*.55&&
-          r.top>=box.top-10&&r.top<box.top+Math.min(180,box.height*.38);
+    // Игровой крестик в правой верхней части внешнего окна.
+    // Сначала ищем короткую явную метку закрытия и выбираем
+    // её самый близкий интерактивный предок внутри карточки.
+    const ancestors=[];
+    for(let node=dialog,d=0;node&&d<7;node=node.parentElement,d++){
+      if(node===document.body||node===document.documentElement)break;
+      const r=node.getBoundingClientRect();
+      if(d>0&&r.height>innerHeight*.96)break;
+      ancestors.push(node);
+    }
+    for(const scope of ancestors){
+      const box=scope.getBoundingClientRect();
+      const options=[...scope.querySelectorAll(
+        'button,[role="button"],div,span,a,[class*="close"],[class*="Close"],[aria-label]'
+      )].filter(el=>{
+        if(!inventoryVisible(el))return false;
+        const r=el.getBoundingClientRect();
+        const t=inventoryText(el);
+        const c=String(el.className||'')+' '+String(el.getAttribute('aria-label')||'');
+        const explicit=/^(?:×|✕|✖|x)$/i.test(t) ||
+          /(?:^|[\s_-])close(?:$|[\s_-])|закрыть/i.test(c);
+        return explicit && r.width>=10&&r.width<=95&&
+          r.height>=10&&r.height<=95 &&
+          r.left>box.left+box.width*.55 &&
+          r.top>=box.top-15 &&
+          r.top<box.top+Math.min(190,box.height*.4);
       });
-      const unique=[...new Set(candidates.map(el=>
-        el.closest('button,[role="button"],[class*="close"],[class*="Close"]')||el))];
-      if(unique.length===1){unique[0].click();return true;}
+      if(!options.length)continue;
+      const clickables=new Set();
+      for(const el of options){
+        const rect=el.getBoundingClientRect();
+        const hit=document.elementFromPoint(
+          rect.left+rect.width/2,rect.top+rect.height/2);
+        if(!hit || !(el===hit||el.contains(hit)||hit.contains(el)))continue;
+        const control=hit.closest('button,[role="button"],[class*="close"],[class*="Close"],[onclick]') ||
+          el.closest('button,[role="button"],[class*="close"],[class*="Close"],[onclick]') ||
+          hit;
+        if(scope.contains(control)&&inventoryVisible(control))clickables.add(control);
+      }
+      if(clickables.size!==1)continue;
+      const target=[...clickables][0];
+      // В React обработчик может быть на родителе SVG/span.
+      target.click();
+      return true;
     }
     return false;
   }
@@ -2694,15 +2719,21 @@
     return false;
   }
   let inventoryLastDiagnostic='Нажми на сундук в инвентаре';
+  let inventoryLastSession=null;
   function inventoryAutoStatus(msg){
     $('inventoryAutoStatus').textContent='📦 '+msg;
   }
   function inventoryDiagnostic(){
     return JSON.stringify({
-      version:'3.16.16',
+      version:'3.16.17',
       inventoryDetected:inventoryShown(),
       running:inventoryAutoRunning,
       phase:inventoryAutoSession?.phase||'idle',
+      previousPhase:inventoryLastSession?.phase||null,
+      previousStopReason:inventoryLastSession?.reason||null,
+      closeAttempts:inventoryAutoSession?.closeAttempts||0,
+      previousCloseAttempts:inventoryLastSession?.closeAttempts||0,
+      currentDialogOpen:Boolean(inventoryDialog()),
       firstCount:inventoryCount(inventoryAutoSession?.first),
       typesDone:inventoryAutoSession?.typesDone||0,
       typeIndex:inventoryAutoSession?.typeIndex||0,
@@ -2730,8 +2761,18 @@
     else window.prompt('Отчёт инвентаря:',report);
   };
   function inventoryAutoStop(msg='Остановлено'){
+    if(inventoryAutoSession){
+      inventoryLastSession={
+        phase:inventoryAutoSession.phase,
+        closeAttempts:inventoryAutoSession.closeAttempts||0,
+        typesDone:inventoryAutoSession.typesDone||0,
+        typeIndex:inventoryAutoSession.typeIndex||0,
+        reason:msg
+      };
+    }
     inventoryAutoRunning=false;
     inventoryAutoSession=null;
+    inventoryLastDiagnostic=msg;
     inventoryAutoStatus(msg);
   }
   $('inventoryAutoStop').onclick=()=>inventoryAutoStop('Остановлено вручную');
@@ -2745,6 +2786,8 @@
     a.fingerprint='';
     a.phase='nextClose';
     a.changedAt=Date.now();
+    a.closeAttempts=0;
+    a.nextCloseClickedAt=0;
     a.ackClicked=false;
     inventoryLastDiagnostic='Тип '+a.typesDone+' завершён: '+reason;
     inventoryAutoStatus('Кейс закончился, ищу следующий');
@@ -2777,20 +2820,31 @@
         return;
       }
     }
-    if(a.phase==='nextClose'){
+    if(a.phase==='nextClose'||a.phase==='nextSelect'){
+      // «Открыть» исчезает только после закрытия панели: прежний
+      // вариант делал click один раз и застревал в nextSelect.
       if(modal){
-        if(!inventoryClose(modal)){
-          inventoryAutoStop('Остановлено: пустой кейс не закрылся');
+        if(now-(a.nextCloseClickedAt||0)<1100)return;
+        if((a.closeAttempts||0)>=4){
+          inventoryAutoStop('Остановлено: окно кейса не закрылось после 4 попыток');
           return;
         }
-        a.phase='nextSelect';a.changedAt=now;
-        inventoryAutoStatus('Закрываю старый кейс…');
+        a.closeAttempts=(a.closeAttempts||0)+1;
+        a.nextCloseClickedAt=now;
+        if(!inventoryClose(modal)){
+          inventoryAutoStop('Остановлено: крестик окна не найден');
+          return;
+        }
+        a.phase='nextClose';
+        a.changedAt=now;
+        inventoryAutoStatus('Закрываю пустой кейс ('+a.closeAttempts+'/4)');
         return;
       }
-      a.phase='nextSelect';a.changedAt=now;
-    }
-    if(a.phase==='nextSelect'){
-      if(modal)return;
+      // Не переходим к следующему предмету, пока старая панель видна.
+      a.phase='nextSelect';
+      a.closeAttempts=0;
+      a.nextCloseClickedAt=0;
+      a.changedAt=now;
       const cards=inventoryAllCards();
       const next=cards.find(card=>inventoryCount(card)>0&&
         !a.skippedCards.has(card)&&
@@ -2919,7 +2973,8 @@
       fingerprint:inventoryFingerprint(grid.first),
       phase:'initial',before:count,batches:0,ackClicked:false,
       typeIndex:1,typesDone:0,skippedCards:new WeakSet(),
-      skippedFingerprints:new Set(),changedAt:Date.now()
+      skippedFingerprints:new Set(),closeAttempts:0,
+      nextCloseClickedAt:0,changedAt:Date.now()
     };
     inventoryAutoRunning=true;
     inventoryLastDiagnostic='Старт: первый тип, '+count+' шт.';
