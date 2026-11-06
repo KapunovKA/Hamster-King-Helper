@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.22
+// @version      3.16.23
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -220,6 +220,9 @@
     .auto-ack-toggle input:checked::after { transform:translateX(12px); }
     .auto-ack-toggle input:focus-visible { outline:2px solid #a8d8ff; outline-offset:3px; }
     .auto-ack-state { flex:1; min-width:0; font-size:10px; color:#c8d1df; text-align:right; overflow-wrap:anywhere; }
+    .quick-actions { position:fixed; z-index:4; width:min(245px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:5px; border:1px solid #52617c; border-radius:14px; background:#202a3b; color:#fff; box-shadow:0 8px 24px #0008; pointer-events:auto; font:13px/1.4 -apple-system,Arial,sans-serif; }
+    .quick-actions .auto-ack-toggle { padding:8px; min-height:44px; border-radius:9px; }
+    .quick-actions .auto-ack-toggle:hover { background:#2b374c; }
     .dash-details { margin-top:9px; border:1px solid #38465f; border-radius:10px; background:#202a3b; padding:8px 10px; }
     .dash-details summary { font-size:12px; font-weight:600; }
     .dash-details .block { margin:6px 0; }
@@ -339,7 +342,11 @@
     :host(.hk-iphone) .coupon-code { min-height:36px; font-size:15px; }
   </style>
 
-  <button id="mini" class="mini" aria-label="Открыть Hamster King Helper">🐹</button>
+  <button id="mini" class="mini" aria-label="Открыть Hamster King Helper" aria-controls="quickActions" aria-expanded="false" title="Наведите для быстрых действий; нажмите для открытия помощника">🐹</button>
+  <div id="quickActions" class="quick-actions hidden" role="group" aria-label="Быстрые действия">
+    <label class="auto-ack-toggle"><input type="checkbox" data-setting="autoAck"><span>Авто «Понятно»</span></label>
+    <label class="auto-ack-toggle"><input type="checkbox" data-setting="autoInventoryCases"><span>📦 Автооткрытие</span></label>
+  </div>
   <div id="mobileBackdrop" class="mobile-backdrop hidden" aria-hidden="true"></div>
 
   <div id="panel" class="panel hidden">
@@ -439,6 +446,7 @@
   }
 
   function openHelperPanel() {
+    hideQuickActions();
     $('mini').classList.add('hidden');
     $('panel').classList.remove('hidden');
     if (isIPhone) $('mobileBackdrop').classList.remove('hidden');
@@ -450,7 +458,66 @@
     $('mobileBackdrop').classList.add('hidden');
   }
 
-  $('mini').onclick = openHelperPanel;
+  let quickHideTimer,quickTouchTimer;
+  let quickLongPressed=false;
+  function hideQuickActions() {
+    clearTimeout(quickHideTimer);
+    clearTimeout(quickTouchTimer);
+    $('quickActions').classList.add('hidden');
+    $('mini').setAttribute('aria-expanded','false');
+  }
+  function showQuickActions() {
+    if($('mini').classList.contains('hidden'))return;
+    clearTimeout(quickHideTimer);
+    const menu=$('quickActions');
+    menu.classList.remove('hidden');
+    const icon=$('mini').getBoundingClientRect();
+    const box=menu.getBoundingClientRect();
+    menu.style.left=Math.max(8,Math.min(icon.right-box.width,innerWidth-box.width-8))+'px';
+    menu.style.top=Math.max(8,Math.min(icon.bottom+6,innerHeight-box.height-8))+'px';
+    $('mini').setAttribute('aria-expanded','true');
+  }
+  function deferQuickHide() {
+    clearTimeout(quickHideTimer);
+    quickHideTimer=setTimeout(()=>{
+      if(!$('quickActions').contains(root.activeElement))hideQuickActions();
+    },250);
+  }
+  $('mini').addEventListener('pointerenter',e=>{
+    if(e.pointerType!=='touch')showQuickActions();
+  });
+  $('mini').addEventListener('pointerleave',deferQuickHide);
+  $('quickActions').addEventListener('pointerenter',()=>clearTimeout(quickHideTimer));
+  $('quickActions').addEventListener('pointerleave',deferQuickHide);
+  $('mini').addEventListener('focus',showQuickActions);
+  root.addEventListener('focusout',()=>setTimeout(()=>{
+    if(root.activeElement!==$('mini')&&!$('quickActions').contains(root.activeElement))
+      hideQuickActions();
+  },0));
+  $('mini').addEventListener('pointerdown',e=>{
+    quickLongPressed=false;
+    clearTimeout(quickTouchTimer);
+    if(e.pointerType==='touch'||e.pointerType==='pen')
+      quickTouchTimer=setTimeout(()=>{quickLongPressed=true;showQuickActions();},500);
+  });
+  $('mini').addEventListener('pointerup',()=>clearTimeout(quickTouchTimer));
+  $('mini').addEventListener('pointercancel',()=>{
+    clearTimeout(quickTouchTimer);quickLongPressed=false;
+  });
+  $('mini').addEventListener('contextmenu',e=>{
+    if(quickLongPressed)e.preventDefault();
+  });
+  $('mini').onclick = e=>{
+    if(quickLongPressed){quickLongPressed=false;e.preventDefault();return;}
+    openHelperPanel();
+  };
+  document.addEventListener('pointerdown',e=>{
+    if(!e.composedPath().includes(host))hideQuickActions();
+  },true);
+  root.addEventListener('keydown',e=>{
+    if(e.key==='Escape')hideQuickActions();
+  });
+  window.addEventListener('resize',hideQuickActions);
   $('close').onclick = closeHelperPanel;
   $('mobileBackdrop').onclick = closeHelperPanel;
 
