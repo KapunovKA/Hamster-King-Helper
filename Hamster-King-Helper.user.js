@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.20
+// @version      3.16.21
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -354,7 +354,8 @@
     <div id="settingsBox" class="settings-box hidden">
       <div class="settings-title">⚙️ Что показывать в панели</div>
       <label class="setting-row"><input type="checkbox" data-setting="showGifts"> 🎁 Подарки</label>
-      <label class="setting-row"><input type="checkbox" data-setting="showRumors"> 🗺️ Слухи</label>
+      <label class="setting-row"><input type="checkbox" data-setting="showRumors"> 🗺️ Кнопка обновления слухов</label>
+      <label class="setting-row"><input type="checkbox" data-setting="showRumorStatus"> 🗺️ Статус слухов</label>
       <label class="setting-row"><input type="checkbox" data-setting="coupons"> 🎟️ Купоны Telegram</label>
       <label class="setting-row"><input type="checkbox" data-setting="puzzle"> 🧩 Кнопка пазла</label>
       <label class="setting-row"><input type="checkbox" data-setting="city"> Ручной выбор города</label>
@@ -395,7 +396,6 @@
       </label>
       <span id="autoAckStatus" class="auto-ack-state" role="status" aria-live="polite">Ожидание…</span>
     </div>
-    <div id="status" class="dash-status good">Запуск...</div>
     <div class="auto-ack-control">
       <label class="auto-ack-toggle" title="Автоматически открывать сундуки в инвентаре после первого нажатия">
         <input type="checkbox" data-setting="autoInventoryCases" aria-label="Автоматически открывать сундуки в инвентаре">
@@ -403,6 +403,7 @@
       </label>
       <span id="inventoryAutoStatus" class="auto-ack-state" role="status" aria-live="polite">Нажми на сундук</span>
     </div>
+    <div id="status" class="dash-status good hidden">Запуск...</div>
     <label id="section-city" class="dash-city" style="display:block">
       🏙️ Город (резервный выбор)
       <select id="city"><option value="">Автоматически</option></select>
@@ -464,6 +465,7 @@
     puzzle: true,
     showGifts: true,
     showRumors: true,
+    showRumorStatus: false,
     autoGifts: false,
     autoAck: true,
     autoPuzzleAction: true,
@@ -489,7 +491,8 @@
     coupons: [$('section-coupons-card')],
     puzzle: [$('puzzle')],
     showGifts: [$('section-gifts')],
-    showRumors: [$('section-rumors-card')]
+    showRumors: [$('section-rumors-card')],
+    showRumorStatus: [$('status')]
   };
 
   function applyUiSettings() {
