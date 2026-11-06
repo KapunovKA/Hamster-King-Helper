@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.19
+// @version      3.16.20
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -364,7 +364,6 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoDigSite"> ⛏️ Автонажатие в окне «Место раскопок» (расходует ресурсы)</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoInventoryCases"> 📦 Автоматически открывать следующие сундуки после первого</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -398,9 +397,11 @@
     </div>
     <div id="status" class="dash-status good">Запуск...</div>
     <div class="auto-ack-control">
-      <span id="inventoryAutoStatus" class="auto-ack-state" style="text-align:left">📦 Ожидаю нажатия на сундук</span>
-      <button id="inventoryAutoReport" class="settings-btn" type="button" title="Диагностика сундуков">Отчёт</button>
-      <button id="inventoryAutoStop" class="settings-btn" type="button">Стоп</button>
+      <label class="auto-ack-toggle" title="Автоматически открывать сундуки в инвентаре после первого нажатия">
+        <input type="checkbox" data-setting="autoInventoryCases" aria-label="Автоматически открывать сундуки в инвентаре">
+        <span>📦 Автооткрытие</span>
+      </label>
+      <span id="inventoryAutoStatus" class="auto-ack-state" role="status" aria-live="polite">Нажми на сундук</span>
     </div>
     <label id="section-city" class="dash-city" style="display:block">
       🏙️ Город (резервный выбор)
@@ -415,6 +416,7 @@
         <summary>🛠️ Диагностика и служебные кнопки</summary>
         <div id="diag" class="block small"></div>
         <button id="giftScanCopy" class="btn" title="Проверка кнопок подарков без данных аккаунта">🎁 Отчёт подарков</button>
+        <button id="inventoryAutoReport" class="btn" type="button">📦 Отчёт инвентаря</button>
       </details>
       <details id="section-manual" class="dash-details">
         <summary>✏️ Ручной ввод слухов</summary>
@@ -520,7 +522,8 @@
         autoAckLastContext = '';
         updateAutoAckStatus();
       }
-      if (input.dataset.setting === 'autoInventoryCases' && !uiSettings.autoInventoryCases) inventoryAutoStop('Выключено в настройках');
+      if (input.dataset.setting === 'autoInventoryCases')
+        inventoryAutoStop(uiSettings.autoInventoryCases?'Нажми на сундук':'Выключено');
       if (input.dataset.setting === 'autoPuzzleAction' && !uiSettings.autoPuzzleAction) {
         puzzleAckStop();
       }
@@ -2727,8 +2730,9 @@
   let inventoryLastDiagnostic='Нажми на сундук в инвентаре';
   let inventoryLastSession=null;
   function inventoryAutoStatus(msg){
-    $('inventoryAutoStatus').textContent='📦 '+msg;
+    $('inventoryAutoStatus').textContent=msg;
   }
+  inventoryAutoStatus(uiSettings.autoInventoryCases?'Нажми на сундук':'Выключено');
   function inventoryDiagnostic(){
     return JSON.stringify({
       version:SCRIPT_VERSION,
@@ -2781,7 +2785,6 @@
     inventoryLastDiagnostic=msg;
     inventoryAutoStatus(msg);
   }
-  $('inventoryAutoStop').onclick=()=>inventoryAutoStop('Остановлено вручную');
   function inventorySameFirst(a){
     return a.first?.isConnected&&inventoryVisible(a.first)&&
       (!a.fingerprint||inventoryFingerprint(a.first)===a.fingerprint);
@@ -2852,9 +2855,7 @@
       a.nextCloseClickedAt=0;
       a.changedAt=now;
       const cards=inventoryAllCards();
-      const next=cards.find(card=>inventoryCount(card)>0&&
-        !a.skippedCards.has(card)&&
-        !a.skippedFingerprints.has(inventoryFingerprint(card)));
+      const next=cards[0];
       if(!next){
         inventoryAutoStop('Готово: больше подходящих сундуков не найдено');
         return;
@@ -2874,19 +2875,12 @@
     if(a.phase==='nextVerify'){
       if(!modal){
         if(now-a.changedAt>3500){
-          a.skippedCards.add(a.first);
-          if(a.fingerprint)a.skippedFingerprints.add(a.fingerprint);
-          a.phase='nextSelect';a.changedAt=now;
-          inventoryAutoStatus('Предмет без окна открытия — пропускаю');
+          inventoryAutoStop('Готово: следующий предмет без кнопок открытия');
         }
         return;
       }
       if(!inventoryChestTitleVisible(modal)){
-        a.skippedCards.add(a.first);
-        if(a.fingerprint)a.skippedFingerprints.add(a.fingerprint);
-        a.first=null;
-        a.phase='nextClose';a.changedAt=now;
-        inventoryAutoStatus('Это не кейс — пропускаю без открытия');
+        inventoryAutoStop('Готово: следующий предмет не сундук');
         return;
       }
       a.phase='batch';a.batches=0;a.changedAt=now;
@@ -2982,8 +2976,7 @@
       first:grid.clicked,clicked:grid.clicked,
       fingerprint:inventoryFingerprint(grid.clicked),
       phase:'initial',before:count,batches:0,ackClicked:false,
-      typeIndex:1,typesDone:0,skippedCards:new WeakSet(),
-      skippedFingerprints:new Set(),closeAttempts:0,
+      typeIndex:1,typesDone:0,closeAttempts:0,
       nextCloseClickedAt:0,changedAt:Date.now()
     };
     inventoryAutoRunning=true;
