@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.21
+// @version      3.16.22
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -2717,19 +2717,6 @@
     result.sort((a,b)=>Math.abs(a.y-b.y)<15?a.x-b.x:a.y-b.y);
     return result.map(x=>x.card);
   }
-  function inventoryChestTitleVisible(dialog){
-    if(!dialog)return false;
-    // Название должно быть коротким заголовком, а не частью описания.
-    for(let root=dialog,depth=0;root&&depth<4;root=root.parentElement,depth++){
-      if(root===document.body||root===document.documentElement)break;
-      if([...root.querySelectorAll('h1,h2,h3,h4,p,div,span,strong')]
-         .some(el=>inventoryVisible(el)&&el.children.length<3&&
-           inventoryText(el).length<70&&
-           /^(?:набор|сундук|кейс|ящик|контейнер)(?:\s|$)/i.test(inventoryText(el))))
-        return true;
-    }
-    return false;
-  }
   let inventoryLastDiagnostic='Нажми на сундук в инвентаре';
   let inventoryLastSession=null;
   function inventoryAutoStatus(msg){
@@ -2751,7 +2738,7 @@
       typesDone:inventoryAutoSession?.typesDone||0,
       typeIndex:inventoryAutoSession?.typeIndex||0,
       inventoryCards:inventoryAllCards().slice(0,10).map(inventoryCount),
-      isChestDialog:inventoryChestTitleVisible(inventoryDialog()),
+      isChestDialog:Boolean(inventoryDialog()),
       dialogDetected:Boolean(inventoryDialog()),
       openingLabels:[...document.querySelectorAll('div,span,h2,h3,h4,strong,p')]
         .filter(el=>inventoryVisible(el)&&inventoryText(el)==='открыть')
@@ -2882,10 +2869,6 @@
         }
         return;
       }
-      if(!inventoryChestTitleVisible(modal)){
-        inventoryAutoStop('Готово: следующий предмет не сундук');
-        return;
-      }
       a.phase='batch';a.batches=0;a.changedAt=now;
       inventoryAutoStatus('Следующий сундук найден — открываю');
       return;
@@ -2893,10 +2876,6 @@
     const count=inventoryCount(a.first);
     if(a.phase==='initial'){
       if(!modal){inventoryAutoStatus('Ищу окно «Открыть» и кнопки количества…');return;}
-      if(!inventoryChestTitleVisible(modal)){
-        inventoryAutoStop('Остановлено: выбранный предмет не распознан как сундук');
-        return;
-      }
       a.phase=a.clicked===a.first?'batch':'closeOther';
       a.changedAt=now;
     }
