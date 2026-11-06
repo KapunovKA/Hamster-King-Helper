@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.17
+// @version      3.16.18
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -2493,7 +2493,7 @@
   function inventoryVisible(el){
     if(!el?.isConnected)return false;
     const r=el.getBoundingClientRect(),css=getComputedStyle(el);
-    return r.width>12&&r.height>12&&r.right>0&&r.bottom>0&&
+    return r.width>0&&r.height>0&&r.right>0&&r.bottom>0&&
       r.left<innerWidth&&r.top<innerHeight&&css.display!=='none'&&
       css.visibility!=='hidden'&&css.opacity!=='0';
   }
@@ -2522,6 +2522,12 @@
     return '';
   }
   function inventoryGridFromClick(target){
+    // В том числе последний сундук и короткие подписи количества.
+    const item=target?.closest?.('.inventory-item');
+    if(item){
+      const cards=inventoryAllCards();
+      if(cards.includes(item))return {clicked:item,first:cards[0]};
+    }
     // В адаптивной мобильной сетке карточки могут лежать в разных
     // контейнерах. Не требуем общего parentElement у всех пяти.
     const square=el=>{
@@ -2628,14 +2634,10 @@
       const m=label.match(/^x?\s*(\d{1,5})$/i);
       return btn?{btn,label,quantity:label==='все'?Infinity:m?Number(m[1]):0}:null;
     }).filter(Boolean).filter(c=>c.quantity>0);
-    const unique=[...new Set(choices.map(c=>c.btn))];
-    if(!unique.length)return null;
-    const all=choices.filter(c=>c.label==='все');
-    if(all.length===1)return all[0].btn;
-    if(all.length>1)return null;
-    const max=Math.max(...choices.map(c=>c.quantity));
-    const top=[...new Set(choices.filter(c=>c.quantity===max).map(c=>c.btn))];
-    return top.length===1?top[0]:null;
+    const unique=[...new Map(choices.map(c=>[c.btn,c])).values()]
+      .sort((a,b)=>a.btn.getBoundingClientRect().left-b.btn.getBoundingClientRect().left);
+    const left=unique[0];
+    return left&&(left.label==='все'||left.quantity===1000)?left.btn:null;
   }
   function inventoryClose(dialog){
     if(!dialog)return false;
@@ -2713,7 +2715,7 @@
       if([...root.querySelectorAll('h1,h2,h3,h4,p,div,span,strong')]
          .some(el=>inventoryVisible(el)&&el.children.length<3&&
            inventoryText(el).length<70&&
-           /^(?:набор\s|сундук\s|кейс\s|ящик\s|контейнер\s)/i.test(inventoryText(el))))
+           /^(?:набор|сундук|кейс|ящик|контейнер)(?:\s|$)/i.test(inventoryText(el))))
         return true;
     }
     return false;
@@ -2725,7 +2727,7 @@
   }
   function inventoryDiagnostic(){
     return JSON.stringify({
-      version:'3.16.17',
+      version:SCRIPT_VERSION,
       inventoryDetected:inventoryShown(),
       running:inventoryAutoRunning,
       phase:inventoryAutoSession?.phase||'idle',
@@ -2890,6 +2892,10 @@
     const count=inventoryCount(a.first);
     if(a.phase==='initial'){
       if(!modal){inventoryAutoStatus('Ищу окно «Открыть» и кнопки количества…');return;}
+      if(!inventoryChestTitleVisible(modal)){
+        inventoryAutoStop('Остановлено: выбранный предмет не распознан как сундук');
+        return;
+      }
       a.phase=a.clicked===a.first?'batch':'closeOther';
       a.changedAt=now;
     }
@@ -2962,15 +2968,15 @@
       inventoryAutoStatus('Сетка не распознана — нажми «Отчёт»');
       return;
     }
-    const count=inventoryCount(grid.first);
+    const count=inventoryCount(grid.clicked);
     if(!count||count<=0){
       inventoryLastDiagnostic='Нет количества на первой карточке: '+String(count);
       inventoryAutoStatus('Не вижу количество сундуков — нажми «Отчёт»');
       return;
     }
     inventoryAutoSession={
-      first:grid.first,clicked:grid.clicked,
-      fingerprint:inventoryFingerprint(grid.first),
+      first:grid.clicked,clicked:grid.clicked,
+      fingerprint:inventoryFingerprint(grid.clicked),
       phase:'initial',before:count,batches:0,ackClicked:false,
       typeIndex:1,typesDone:0,skippedCards:new WeakSet(),
       skippedFingerprints:new Set(),closeAttempts:0,
