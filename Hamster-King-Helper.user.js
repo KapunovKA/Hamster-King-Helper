@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.18
+// @version      3.16.19
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -2613,31 +2613,35 @@
   function inventoryAmountControl(label,dialog){
     if(!label||!dialog)return null;
     const caption=inventoryText(label);
+    let candidate=null;
     for(let el=label,d=0;el&&el!==dialog&&d<6;
         el=el.parentElement,d++){
       if(!inventoryVisible(el)||el.disabled||
          el.getAttribute('aria-disabled')==='true'||
-         el.hasAttribute('disabled'))continue;
-      if(inventoryText(el)!==caption)break;
-      if(el.matches('button,[role="button"],[onclick],a') ||
+         el.hasAttribute('disabled')||
+         /(?:^|[\s_-])disabled(?:$|[\s_-])/i.test(String(el.className||''))||
+         getComputedStyle(el).pointerEvents==='none')return null;
+      if(!candidate&&inventoryText(el)===caption&&(
+         el.matches('button,[role="button"],[onclick],a') ||
          /(?:button|btn|quantity|amount|action)/i.test(String(el.className||'')) ||
-         getComputedStyle(el).cursor==='pointer') return el;
+         getComputedStyle(el).cursor==='pointer'))candidate=el;
     }
     // Без уверенно определённой кликабельной обёртки не нажимаем.
-    return null;
+    return candidate;
   }
-  function inventoryBatchButton(dialog){
+  function inventoryBatchButton(dialog,availableCount=Infinity){
     if(!dialog)return null;
     const choices=inventoryAmountLabels(dialog).map(el=>{
       const label=inventoryText(el);
       const btn=inventoryAmountControl(el,dialog);
       const m=label.match(/^x?\s*(\d{1,5})$/i);
       return btn?{btn,label,quantity:label==='все'?Infinity:m?Number(m[1]):0}:null;
-    }).filter(Boolean).filter(c=>c.quantity>0);
+    }).filter(Boolean).filter(c=>c.quantity>0&&
+      (c.label==='все'||c.quantity<=availableCount));
     const unique=[...new Map(choices.map(c=>[c.btn,c])).values()]
-      .sort((a,b)=>a.btn.getBoundingClientRect().left-b.btn.getBoundingClientRect().left);
-    const left=unique[0];
-    return left&&(left.label==='все'||left.quantity===1000)?left.btn:null;
+      .sort((a,b)=>b.quantity-a.quantity||
+        a.btn.getBoundingClientRect().left-b.btn.getBoundingClientRect().left);
+    return unique[0]?.btn||null;
   }
   function inventoryClose(dialog){
     if(!dialog)return false;
@@ -2919,7 +2923,7 @@
       if(a.batches>=100){
         inventoryAutoStop('Остановлено: лимит 100 партий');return;
       }
-      const btn=inventoryBatchButton(modal);
+      const btn=inventoryBatchButton(modal,count);
       if(!btn){
         inventoryAutoStop('Остановлено: нет доступной кнопки открытия');
         return;
