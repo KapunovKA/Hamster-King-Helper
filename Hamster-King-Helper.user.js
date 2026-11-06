@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.14
+// @version      3.16.15
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -2566,37 +2566,76 @@
     }
     return null;
   }
+  // Игровая панель использует DIV-кнопки, а «Открыть» является
+  // заголовком, а не HTML button. Ищем минимальный видимый контейнер,
+  // где одновременно есть «Открыть», «x1» и «Все»/числовая партия.
+  const INVENTORY_AMOUNT_LABEL=/^(?:все|x\s*\d{1,5}|\d{1,5})$/i;
+  function inventoryAmountLabels(scope){
+    const nodes=[scope,...scope.querySelectorAll('button,[role="button"],div,span,a')];
+    return nodes.filter(el=>inventoryVisible(el) &&
+      INVENTORY_AMOUNT_LABEL.test(inventoryText(el)) &&
+      ![...el.children].some(child =>
+        INVENTORY_AMOUNT_LABEL.test(inventoryText(child))));
+  }
   function inventoryDialog(){
-    // Минимальный общий контейнер надписи «Открыть» и batch-кнопок.
-    const buttons=[...document.querySelectorAll('button,[role="button"]')]
-      .filter(inventoryVisible);
-    const headers=[...document.querySelectorAll('div,span,h2,h3,h4')]
-      .filter(el=>el.children.length<3&&inventoryVisible(el)&&
-        inventoryText(el)==='открыть');
-    for(const el of headers){
-      for(let parent=el.parentElement,d=0;parent&&d<9;
-          parent=parent.parentElement,d++){
-        if(parent===document.body||parent===document.documentElement)break;
-        const inside=buttons.filter(b=>parent.contains(b));
-        if(inside.length>=2&&inside.some(b=>
-          /^(все|x?\s*\d{1,5})$/i.test(inventoryText(b))))
-          return parent;
+    const labels=[...document.querySelectorAll(
+      'div,span,h2,h3,h4,strong,p'
+    )].filter(el=>inventoryVisible(el)&&el.children.length<4&&
+      inventoryText(el)==='открыть');
+    for(const title of labels){
+      for(let box=title.parentElement,d=0;box&&d<11;
+          box=box.parentElement,d++){
+        if(box===document.body||box===document.documentElement)break;
+        const r=box.getBoundingClientRect();
+        if(r.width<180||r.height<90||r.width>innerWidth*1.1||
+           r.height>innerHeight*1.1)continue;
+        const choices=inventoryAmountLabels(box);
+        const values=choices.map(inventoryText);
+        // Должна присутствовать минимум пара команд количества.
+        if(choices.length<2||!values.some(v=>/^x?\s*1$/i.test(v)) ||
+           !values.some(v=>v==='все'||/^x?\s*(?:100|1000|\d{2,5})$/i.test(v)))
+          continue;
+        // Не взаимодействуем с магазином и платными предложениями.
+        const text=inventoryText(box);
+        if(/оплатить|купить за|₽|usdt|visa|mastercard|пополнить баланс/i.test(text))
+          continue;
+        return box;
       }
     }
     return null;
   }
+  function inventoryAmountControl(label,dialog){
+    if(!label||!dialog)return null;
+    const caption=inventoryText(label);
+    for(let el=label,d=0;el&&el!==dialog&&d<6;
+        el=el.parentElement,d++){
+      if(!inventoryVisible(el)||el.disabled||
+         el.getAttribute('aria-disabled')==='true'||
+         el.hasAttribute('disabled'))continue;
+      if(inventoryText(el)!==caption)break;
+      if(el.matches('button,[role="button"],[onclick],a') ||
+         /(?:button|btn|quantity|amount|action)/i.test(String(el.className||'')) ||
+         getComputedStyle(el).cursor==='pointer') return el;
+    }
+    // Без уверенно определённой кликабельной обёртки не нажимаем.
+    return null;
+  }
   function inventoryBatchButton(dialog){
     if(!dialog)return null;
-    const buttons=[...dialog.querySelectorAll('button,[role="button"]')]
-      .filter(el=>inventoryVisible(el)&&!el.disabled&&
-        el.getAttribute('aria-disabled')!=='true');
-    const all=buttons.filter(b=>inventoryText(b)==='все');
+    const choices=inventoryAmountLabels(dialog).map(el=>{
+      const label=inventoryText(el);
+      const btn=inventoryAmountControl(el,dialog);
+      const m=label.match(/^x?\s*(\d{1,5})$/i);
+      return btn?{btn,label,quantity:label==='все'?Infinity:m?Number(m[1]):0}:null;
+    }).filter(Boolean).filter(c=>c.quantity>0);
+    const unique=[...new Set(choices.map(c=>c.btn))];
+    if(!unique.length)return null;
+    const all=choices.filter(c=>c.label==='все');
+    if(all.length===1)return all[0].btn;
     if(all.length>1)return null;
-    if(all.length===1)return all[0];
-    return buttons.map(b=>{
-      const m=inventoryText(b).match(/^x?\s*(\d{1,5})$/);
-      return m?{el:b,n:Number(m[1])}:null;
-    }).filter(Boolean).sort((a,b)=>b.n-a.n)[0]?.el||null;
+    const max=Math.max(...choices.map(c=>c.quantity));
+    const top=[...new Set(choices.filter(c=>c.quantity===max).map(c=>c.btn))];
+    return top.length===1?top[0]:null;
   }
   function inventoryClose(dialog){
     if(!dialog)return false;
@@ -2621,11 +2660,20 @@
   }
   function inventoryDiagnostic(){
     return JSON.stringify({
-      version:'3.16.14',
+      version:'3.16.15',
       inventoryDetected:inventoryShown(),
       running:inventoryAutoRunning,
       phase:inventoryAutoSession?.phase||'idle',
       firstCount:inventoryCount(inventoryAutoSession?.first),
+      dialogDetected:Boolean(inventoryDialog()),
+      openingLabels:[...document.querySelectorAll('div,span,h2,h3,h4,strong,p')]
+        .filter(el=>inventoryVisible(el)&&inventoryText(el)==='открыть')
+        .slice(0,6).map(el=>({tag:el.tagName,cls:String(el.className||'').slice(0,80)})),
+      amountLabels:[...document.querySelectorAll('button,[role="button"],div,span')]
+        .filter(el=>inventoryVisible(el)&&INVENTORY_AMOUNT_LABEL.test(inventoryText(el))&&
+          ![...el.children].some(c=>INVENTORY_AMOUNT_LABEL.test(inventoryText(c))))
+        .slice(0,12).map(el=>({text:inventoryText(el),tag:el.tagName,
+          cls:String(el.className||'').slice(0,90),cursor:getComputedStyle(el).cursor})),
       lastAction:inventoryLastDiagnostic,
       status:$('inventoryAutoStatus').textContent
     },null,2);
@@ -2676,7 +2724,7 @@
     }
     const modal=inventoryDialog();
     if(a.phase==='initial'){
-      if(!modal)return;
+      if(!modal){inventoryAutoStatus('Ищу окно «Открыть» и кнопки количества…');return;}
       a.phase=a.clicked===a.first?'batch':'closeOther';
       a.changedAt=now;
     }
