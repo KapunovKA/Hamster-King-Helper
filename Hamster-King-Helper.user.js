@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.15
+// @version      3.16.16
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -364,7 +364,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoDigSite"> ⛏️ Автонажатие в окне «Место раскопок» (расходует ресурсы)</label>
-      <label class="setting-row"><input type="checkbox" data-setting="autoInventoryCases"> 📦 После нажатия на сундук открывать только верхний левый тип</label>
+      <label class="setting-row"><input type="checkbox" data-setting="autoInventoryCases"> 📦 Автоматически открывать следующие сундуки после первого</label>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -2484,8 +2484,8 @@
   };
 
 
-  // ===== ИНВЕНТАРЬ: ОТКРЫТЬ ТОЛЬКО ВЕРХНИЙ ЛЕВЫЙ СУНДУК =====
-  // Никаких API, расходов валюты и переключения на соседний тип.
+  // ===== ИНВЕНТАРЬ: АВТООТКРЫТИЕ СЛЕДУЮЩИХ СУНДУКОВ =====
+  // Проверяем тип предмета до нажатия кнопок открытия.
   let inventoryAutoRunning=false;
   let inventoryAutoSession=null;
   const inventoryText=el=>String(el?.innerText||el?.textContent||'')
@@ -2639,20 +2639,59 @@
   }
   function inventoryClose(dialog){
     if(!dialog)return false;
-    const r=dialog.getBoundingClientRect();
-    const candidates=[...dialog.querySelectorAll(
-      'button,[role="button"],[class*="close"],[class*="Close"],[aria-label]'
-    )].filter(inventoryVisible).filter(el=>{
-      const q=el.getBoundingClientRect();
-      return q.top<r.top+Math.min(180,r.height*.35)&&
-        q.left>r.left+r.width*.55&&(
-          /^(×|✕|✖|x)$/.test(inventoryText(el))||
-          /close|закрыть/i.test(String(el.getAttribute('aria-label')||'')+
-            String(el.className||'')));
-    });
-    if(candidates.length!==1)return false;
-    candidates[0].click();
-    return true;
+    // Крестик относится к внешней карточке, не всегда к блоку кнопок.
+    for(let root=dialog,depth=0;root&&depth<6;root=root.parentElement,depth++){
+      if(root===document.body||root===document.documentElement)break;
+      const box=root.getBoundingClientRect();
+      if(depth>0&&box.height>innerHeight*.93)break;
+      const candidates=[...root.querySelectorAll(
+        'button,[role="button"],div,span,[class*="close"],[class*="Close"],[aria-label]'
+      )].filter(inventoryVisible).filter(el=>{
+        if(el===root)return false;
+        const r=el.getBoundingClientRect(),txt=inventoryText(el);
+        const name=String(el.className||'')+' '+String(el.getAttribute('aria-label')||'');
+        return (/(?:^|[\s_-])close(?:$|[\s_-])|закрыть/i.test(name)||
+          /^(?:×|✕|✖|x)$/i.test(txt)) &&
+          r.width<100&&r.height<100&&r.left>box.left+box.width*.55&&
+          r.top>=box.top-10&&r.top<box.top+Math.min(180,box.height*.38);
+      });
+      const unique=[...new Set(candidates.map(el=>
+        el.closest('button,[role="button"],[class*="close"],[class*="Close"]')||el))];
+      if(unique.length===1){unique[0].click();return true;}
+    }
+    return false;
+  }
+  function inventoryAllCards(){
+    // Количество в реальной разметке: span.inventory-item__quantity.
+    const seen=new Set(),result=[];
+    for(const q of document.querySelectorAll('[class*="inventory-item__quantity"]')){
+      if(!inventoryVisible(q))continue;
+      let card=q.parentElement;
+      for(let i=0;card&&i<7;i++,card=card.parentElement){
+        if(String(card.className||'').split(/\s+/).includes('inventory-item'))
+          break;
+      }
+      if(!card||card===document.body||seen.has(card)||
+         !inventoryVisible(card)||inventoryCount(card)===null)continue;
+      const r=card.getBoundingClientRect();
+      if(r.width<45||r.height<45||r.width>250||r.height>270)continue;
+      seen.add(card);result.push({card,x:r.left,y:r.top});
+    }
+    result.sort((a,b)=>Math.abs(a.y-b.y)<15?a.x-b.x:a.y-b.y);
+    return result.map(x=>x.card);
+  }
+  function inventoryChestTitleVisible(dialog){
+    if(!dialog)return false;
+    // Название должно быть коротким заголовком, а не частью описания.
+    for(let root=dialog,depth=0;root&&depth<4;root=root.parentElement,depth++){
+      if(root===document.body||root===document.documentElement)break;
+      if([...root.querySelectorAll('h1,h2,h3,h4,p,div,span,strong')]
+         .some(el=>inventoryVisible(el)&&el.children.length<3&&
+           inventoryText(el).length<70&&
+           /^(?:набор\s|сундук\s|кейс\s|ящик\s|контейнер\s)/i.test(inventoryText(el))))
+        return true;
+    }
+    return false;
   }
   let inventoryLastDiagnostic='Нажми на сундук в инвентаре';
   function inventoryAutoStatus(msg){
@@ -2660,11 +2699,15 @@
   }
   function inventoryDiagnostic(){
     return JSON.stringify({
-      version:'3.16.15',
+      version:'3.16.16',
       inventoryDetected:inventoryShown(),
       running:inventoryAutoRunning,
       phase:inventoryAutoSession?.phase||'idle',
       firstCount:inventoryCount(inventoryAutoSession?.first),
+      typesDone:inventoryAutoSession?.typesDone||0,
+      typeIndex:inventoryAutoSession?.typeIndex||0,
+      inventoryCards:inventoryAllCards().slice(0,10).map(inventoryCount),
+      isChestDialog:inventoryChestTitleVisible(inventoryDialog()),
       dialogDetected:Boolean(inventoryDialog()),
       openingLabels:[...document.querySelectorAll('div,span,h2,h3,h4,strong,p')]
         .filter(el=>inventoryVisible(el)&&inventoryText(el)==='открыть')
@@ -2696,6 +2739,16 @@
     return a.first?.isConnected&&inventoryVisible(a.first)&&
       (!a.fingerprint||inventoryFingerprint(a.first)===a.fingerprint);
   }
+  function inventoryNextType(a,reason){
+    a.typesDone++;
+    a.first=null;
+    a.fingerprint='';
+    a.phase='nextClose';
+    a.changedAt=Date.now();
+    a.ackClicked=false;
+    inventoryLastDiagnostic='Тип '+a.typesDone+' завершён: '+reason;
+    inventoryAutoStatus('Кейс закончился, ищу следующий');
+  }
   function inventoryAutoTick(){
     const a=inventoryAutoSession;
     if(!inventoryAutoRunning||!a)return;
@@ -2704,25 +2757,83 @@
       inventoryAutoStop('Остановлено: инвентарь закрыт или вкладка скрыта');
       return;
     }
-    if(!inventorySameFirst(a)){
-      inventoryAutoStop('Готово: первый тип сундуков исчез');
-      return;
-    }
     const now=Date.now();
     if(now-a.changedAt>14000){
-      inventoryAutoStop('Остановлено: нет подтверждения от игры');
-      return;
-    }
-    const count=inventoryCount(a.first);
-    if(count===null){
-      inventoryAutoStop('Остановлено: не видно количества первого сундука');
-      return;
-    }
-    if(count<=0){
-      inventoryAutoStop('Готово: запас верхнего левого сундука исчерпан');
+      inventoryAutoStop('Остановлено: нет ответа игры на текущем этапе');
       return;
     }
     const modal=inventoryDialog();
+    const switching=['nextClose','nextSelect','nextVerify'].includes(a.phase);
+    if(!switching){
+      // После «Все» старая DOM-карточка исчезает, следующая
+      // передвигается на её место. Это НЕ конец всей автоматизации.
+      if(!inventorySameFirst(a)){
+        inventoryNextType(a,'предмет исчез из сетки');return;
+      }
+      const count=inventoryCount(a.first);
+      if(count===0){inventoryNextType(a,'осталось 0');return;}
+      if(count===null){
+        inventoryAutoStop('Остановлено: не удалось прочитать количество');
+        return;
+      }
+    }
+    if(a.phase==='nextClose'){
+      if(modal){
+        if(!inventoryClose(modal)){
+          inventoryAutoStop('Остановлено: пустой кейс не закрылся');
+          return;
+        }
+        a.phase='nextSelect';a.changedAt=now;
+        inventoryAutoStatus('Закрываю старый кейс…');
+        return;
+      }
+      a.phase='nextSelect';a.changedAt=now;
+    }
+    if(a.phase==='nextSelect'){
+      if(modal)return;
+      const cards=inventoryAllCards();
+      const next=cards.find(card=>inventoryCount(card)>0&&
+        !a.skippedCards.has(card)&&
+        !a.skippedFingerprints.has(inventoryFingerprint(card)));
+      if(!next){
+        inventoryAutoStop('Готово: больше подходящих сундуков не найдено');
+        return;
+      }
+      if(a.typeIndex>=40){
+        inventoryAutoStop('Остановлено: проверено слишком много предметов');
+        return;
+      }
+      a.first=next;
+      a.fingerprint=inventoryFingerprint(next);
+      a.typeIndex++;
+      a.phase='nextVerify';a.changedAt=now;
+      next.click();
+      inventoryAutoStatus('Проверяю следующий предмет №'+a.typeIndex);
+      return;
+    }
+    if(a.phase==='nextVerify'){
+      if(!modal){
+        if(now-a.changedAt>3500){
+          a.skippedCards.add(a.first);
+          if(a.fingerprint)a.skippedFingerprints.add(a.fingerprint);
+          a.phase='nextSelect';a.changedAt=now;
+          inventoryAutoStatus('Предмет без окна открытия — пропускаю');
+        }
+        return;
+      }
+      if(!inventoryChestTitleVisible(modal)){
+        a.skippedCards.add(a.first);
+        if(a.fingerprint)a.skippedFingerprints.add(a.fingerprint);
+        a.first=null;
+        a.phase='nextClose';a.changedAt=now;
+        inventoryAutoStatus('Это не кейс — пропускаю без открытия');
+        return;
+      }
+      a.phase='batch';a.batches=0;a.changedAt=now;
+      inventoryAutoStatus('Следующий сундук найден — открываю');
+      return;
+    }
+    const count=inventoryCount(a.first);
     if(a.phase==='initial'){
       if(!modal){inventoryAutoStatus('Ищу окно «Открыть» и кнопки количества…');return;}
       a.phase=a.clicked===a.first?'batch':'closeOther';
@@ -2750,21 +2861,19 @@
       }
       const btn=inventoryBatchButton(modal);
       if(!btn){
-        inventoryAutoStop('Остановлено: нет кнопки «Все»/количества');return;
+        inventoryAutoStop('Остановлено: нет доступной кнопки открытия');
+        return;
       }
       a.before=count;a.ackClicked=false;a.batches++;
       btn.click();a.phase='waitResult';a.changedAt=now;
-      inventoryAutoStatus('Открываю первый сундук, партия '+a.batches);
+      inventoryAutoStatus('Кейс '+a.typeIndex+', партия '+a.batches);
       return;
     }
     if(a.phase==='waitResult'){
       if(count<a.before){
-        if(count<=0)inventoryAutoStop('Готово: первый тип закончился');
-        else{a.phase='finishResult';a.changedAt=now;}
-        return;
+        if(count<=0){inventoryNextType(a,'количество стало 0');return;}
+        a.phase='finishResult';a.changedAt=now;return;
       }
-      // Если результат требует подтверждения, нажимаем только
-      // одиночную безопасную кнопку в окне награды.
       if(!a.ackClicked){
         const awarded=[...document.querySelectorAll('div,span,h2,h3')]
           .some(el=>el.children.length<3&&inventoryVisible(el)&&
@@ -2781,7 +2890,7 @@
     if(a.phase==='finishResult'){
       a.ackClicked=false;
       if(modal&&!inventoryClose(modal)){
-        inventoryAutoStop('Остановлено: не закрывается окно сундука');
+        inventoryAutoStop('Остановлено: не закрывается окно кейса');
         return;
       }
       a.phase='openFirst';a.changedAt=now;
@@ -2809,7 +2918,8 @@
       first:grid.first,clicked:grid.clicked,
       fingerprint:inventoryFingerprint(grid.first),
       phase:'initial',before:count,batches:0,ackClicked:false,
-      changedAt:Date.now()
+      typeIndex:1,typesDone:0,skippedCards:new WeakSet(),
+      skippedFingerprints:new Set(),changedAt:Date.now()
     };
     inventoryAutoRunning=true;
     inventoryLastDiagnostic='Старт: первый тип, '+count+' шт.';
