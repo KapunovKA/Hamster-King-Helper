@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.13
+// @version      3.16.14
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -399,6 +399,7 @@
     <div id="status" class="dash-status good">Запуск...</div>
     <div class="auto-ack-control">
       <span id="inventoryAutoStatus" class="auto-ack-state" style="text-align:left">📦 Ожидаю нажатия на сундук</span>
+      <button id="inventoryAutoReport" class="settings-btn" type="button" title="Диагностика сундуков">Отчёт</button>
       <button id="inventoryAutoStop" class="settings-btn" type="button">Стоп</button>
     </div>
     <label id="section-city" class="dash-city" style="display:block">
@@ -2499,7 +2500,7 @@
   function inventoryShown(){
     return [...document.querySelectorAll('div,span,button,h1,h2,h3')]
       .some(el=>el.children.length<3&&inventoryVisible(el)&&
-        inventoryText(el)==='инвентарь');
+        /(?:^|\s)инвентарь(?:\s|$)/i.test(inventoryText(el)) && inventoryText(el).length<80);
   }
   function inventoryCount(card){
     if(!card||!inventoryVisible(card))return null;
@@ -2521,22 +2522,47 @@
     return '';
   }
   function inventoryGridFromClick(target){
-    // Карточки в одной сетке одинакового размера, сверху >=4 столбцов.
-    // Первая карточка фиксируется по ссылке и изображению.
-    for(let node=target,d=0;node?.parentElement&&d<10;
-      node=node.parentElement,d++){
-      const candidates=[...node.parentElement.children].filter(el=>{
-        const r=el.getBoundingClientRect();
-        return inventoryVisible(el)&&r.width>=40&&r.width<=230&&
-          r.height>=45&&r.height<=250&&inventoryCount(el)!==null;
-      });
-      if(candidates.length<5||!candidates.includes(node))continue;
-      const sorted=candidates.map(el=>{
-        const r=el.getBoundingClientRect();return {el,x:r.left,y:r.top};
-      }).sort((a,b)=>Math.abs(a.y-b.y)<15?a.x-b.x:a.y-b.y);
-      const firstRow=sorted.filter(n=>Math.abs(n.y-sorted[0].y)<15);
-      if(firstRow.length>=4 && firstRow[0].x<firstRow[1].x)
-        return {first:firstRow[0].el,clicked:node};
+    // В адаптивной мобильной сетке карточки могут лежать в разных
+    // контейнерах. Не требуем общего parentElement у всех пяти.
+    const square=el=>{
+      if(!inventoryVisible(el))return false;
+      const r=el.getBoundingClientRect();
+      return r.width>=48&&r.width<=240&&r.height>=52&&r.height<=250;
+    };
+    const clickedCandidates=[];
+    for(let n=target,i=0;n&&n!==document.body&&i<12;n=n.parentElement,i++){
+      if(square(n)&&inventoryCount(n)!==null)clickedCandidates.push(n);
+    }
+    if(!clickedCandidates.length)return null;
+    for(const clicked of clickedCandidates){
+      const base=clicked.getBoundingClientRect();
+      for(let parent=clicked.parentElement,depth=0;parent&&depth<8;
+          parent=parent.parentElement,depth++){
+        if(parent===document.body)break;
+        const box=parent.getBoundingClientRect();
+        if(box.width<base.width*3.1)continue;
+        const matches=[];
+        for(const el of parent.querySelectorAll('div,button,[role="button"],li')){
+          if(!square(el)||inventoryCount(el)===null)continue;
+          const r=el.getBoundingClientRect();
+          if(Math.abs(r.width-base.width)>Math.max(15,base.width*.28)||
+             Math.abs(r.height-base.height)>Math.max(16,base.height*.35))continue;
+          if(matches.some(item=>item.el.contains(el)))continue;
+          const index=matches.findIndex(item=>el.contains(item.el));
+          if(index>=0)matches.splice(index,1);
+          matches.push({el,x:r.left,y:r.top});
+        }
+        if(matches.length<4)continue;
+        const inClicked=matches.find(item=>item.el===clicked||item.el.contains(clicked));
+        if(!inClicked)continue;
+        const top=Math.min(...matches.map(item=>item.y));
+        const row=matches.filter(item=>Math.abs(item.y-top)<Math.max(14,base.height*.2))
+          .sort((a,b)=>a.x-b.x);
+        if(row.length<4)continue;
+        const first=row[0].el;
+        if(!first.isConnected||inventoryCount(first)===null)continue;
+        return {clicked:inClicked.el,first};
+      }
     }
     return null;
   }
@@ -2589,9 +2615,29 @@
     candidates[0].click();
     return true;
   }
+  let inventoryLastDiagnostic='Нажми на сундук в инвентаре';
   function inventoryAutoStatus(msg){
     $('inventoryAutoStatus').textContent='📦 '+msg;
   }
+  function inventoryDiagnostic(){
+    return JSON.stringify({
+      version:'3.16.14',
+      inventoryDetected:inventoryShown(),
+      running:inventoryAutoRunning,
+      phase:inventoryAutoSession?.phase||'idle',
+      firstCount:inventoryCount(inventoryAutoSession?.first),
+      lastAction:inventoryLastDiagnostic,
+      status:$('inventoryAutoStatus').textContent
+    },null,2);
+  }
+  $('inventoryAutoReport').onclick=()=>{
+    const report=inventoryDiagnostic();
+    if(navigator.clipboard?.writeText)
+      navigator.clipboard.writeText(report).then(()=>
+        inventoryAutoStatus('Отчёт скопирован — пришли его в чат')
+      ).catch(()=>window.prompt('Отчёт инвентаря:',report));
+    else window.prompt('Отчёт инвентаря:',report);
+  };
   function inventoryAutoStop(msg='Остановлено'){
     inventoryAutoRunning=false;
     inventoryAutoSession=null;
@@ -2693,15 +2739,24 @@
       a.phase='openFirst';a.changedAt=now;
     }
   }
-  // Старт только от физического клика по карточке в инвентаре.
+  // Старт от реального нажатия; при ошибке показываем причину.
   document.addEventListener('click',e=>{
     if(!e.isTrusted||inventoryAutoRunning||!uiSettings.autoInventoryCases||
-       document.visibilityState!=='visible'||!inventoryShown()||
-       e.composedPath().includes(host))return;
+       document.visibilityState!=='visible'||e.composedPath().includes(host))
+      return;
+    if(!inventoryShown())return;
     const grid=inventoryGridFromClick(e.target);
-    if(!grid)return;
+    if(!grid){
+      inventoryLastDiagnostic='Не удалось найти верхнюю левую ячейку сетки';
+      inventoryAutoStatus('Сетка не распознана — нажми «Отчёт»');
+      return;
+    }
     const count=inventoryCount(grid.first);
-    if(!count||count<=0)return;
+    if(!count||count<=0){
+      inventoryLastDiagnostic='Нет количества на первой карточке: '+String(count);
+      inventoryAutoStatus('Не вижу количество сундуков — нажми «Отчёт»');
+      return;
+    }
     inventoryAutoSession={
       first:grid.first,clicked:grid.clicked,
       fingerprint:inventoryFingerprint(grid.first),
@@ -2709,7 +2764,8 @@
       changedAt:Date.now()
     };
     inventoryAutoRunning=true;
-    inventoryAutoStatus('Первый сундук выбран, ожидаю окно');
+    inventoryLastDiagnostic='Старт: первый тип, '+count+' шт.';
+    inventoryAutoStatus('Нашёл первый сундук ('+count+'), ожидаю окно');
   },true);
   setInterval(inventoryAutoTick,450);
 
