@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.24
-// @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
+// @version      3.16.25
+// @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
@@ -3104,6 +3104,66 @@
   renderStatus();
   loadRumors();
   loadCoupons();
+  // Esc: закрытие / назад / клик по центру. Только настольные устройства.
+  function desktopEscapeEnabled(){
+    return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)&&
+      !(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  }
+  function desktopEscapeControl(kind){
+    const found=[];
+    for(const el of document.querySelectorAll('button,[role="button"],a,div,span,svg,img')){
+      if(!puzzleAckVisible(el,true))continue;
+      const text=puzzleAckText(el);
+      const meta=[el.getAttribute('aria-label'),el.getAttribute('title'),
+        el.getAttribute('alt'),el.className?.baseVal||el.className].join(' ').toLowerCase();
+      const named=kind==='close'
+        ? /^(закрыть|close|×|✕|✖|x)$/.test(text)||
+          /(?:^|[\s_-])(?:close|закрыть)(?:$|[\s_-])/.test(meta)
+        : /^(назад|вернуться|back|←|↩|↶|⤺)$/.test(text)||
+          /(?:^|[\s_-])(?:back|назад)(?:$|[\s_-])/.test(meta);
+      if(!named)continue;
+      const target=el.closest('button,[role="button"],a,[onclick]')||el;
+      if(!puzzleAckVisible(target))continue;
+      const r=target.getBoundingClientRect();
+      const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+      if(!hit||!(target===hit||target.contains(hit)))continue;
+      if(!found.includes(target))found.push(target);
+    }
+    return found.at(-1)||null;
+  }
+  function desktopEscapeClick(target,x,y){
+    const common={bubbles:true,cancelable:true,composed:true,
+      clientX:x,clientY:y,button:0};
+    if(typeof PointerEvent==='function')target.dispatchEvent(new PointerEvent('pointerdown',{
+      ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:1
+    }));
+    target.dispatchEvent(new MouseEvent('mousedown',{...common,buttons:1}));
+    if(typeof PointerEvent==='function')target.dispatchEvent(new PointerEvent('pointerup',{
+      ...common,pointerId:1,pointerType:'mouse',isPrimary:true,buttons:0
+    }));
+    target.dispatchEvent(new MouseEvent('mouseup',{...common,buttons:0}));
+    target.dispatchEvent(new MouseEvent('click',{...common,buttons:0}));
+  }
+  function desktopEscapeKey(event){
+    if(event.key!=='Escape'||event.repeat||event.isComposing||
+       event.ctrlKey||event.altKey||event.metaKey||!desktopEscapeEnabled())return;
+    const active=root.activeElement||event.composedPath()[0]||document.activeElement;
+    if(active?.matches?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])'))return;
+    if(!$('quickActions').classList.contains('hidden')||event.composedPath().includes(host)){
+      if(!$('quickActions').classList.contains('hidden'))hideQuickActions();
+      else if(!$('panel').classList.contains('hidden'))closeHelperPanel();
+      event.preventDefault();event.stopImmediatePropagation();return;
+    }
+    const control=desktopEscapeControl('close')||desktopEscapeControl('back');
+    const rect=control?.getBoundingClientRect();
+    const x=rect?rect.left+rect.width/2:Math.round(innerWidth/2);
+    const y=rect?rect.top+rect.height/2:Math.round(innerHeight/2);
+    const target=control||document.elementFromPoint(x,y);
+    if(!target||target===host)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    desktopEscapeClick(target,x,y);
+  }
+  document.addEventListener('keydown',desktopEscapeKey,true);
 document.addEventListener('keydown', event => {
  if (event.key !== 'Enter' || event.repeat) return;
 
