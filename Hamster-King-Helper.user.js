@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.23
+// @version      3.16.24
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -397,7 +397,7 @@
       </div>
     </div>
     <div class="auto-ack-control">
-      <label class="auto-ack-toggle" title="Автоматически нажимать «Понятно» во всей игре">
+      <label class="auto-ack-toggle" title="Автоматически нажимать «Понятно» и продолжать после результата слухов">
         <input type="checkbox" data-setting="autoAck" aria-label="Автоматически нажимать «Понятно» во всей игре">
         <span>Авто «Понятно»</span>
       </label>
@@ -1621,6 +1621,34 @@
     }
     return 'понятно';
   }
+  function rumorResultContinueButton() {
+    const isTitle=node=>/^(?:вчерашние слухи|слухи собраны)$/.test(puzzleAckText(node));
+    const isPrompt=node=>/^нажми(?:те)?,?\s+чтобы\s+продолжить[.!…]?$/.test(puzzleAckText(node));
+    const nodes=[...document.querySelectorAll('h1,h2,h3,h4,strong,div,span,p,button,[role="button"]')];
+    const titles=nodes.filter(node=>isTitle(node)&&puzzleAckVisible(node,true)&&
+      ![...node.children].some(isTitle));
+    const prompts=nodes.filter(node=>isPrompt(node)&&puzzleAckVisible(node,true)&&
+      ![...node.children].some(isPrompt));
+    const matches=[];
+    for(const label of prompts){
+      let scope=label.parentElement;
+      for(let depth=0;scope&&depth<12;depth++,scope=scope.parentElement){
+        if(scope===document.body||scope===document.documentElement)break;
+        const text=puzzleAckText(scope);
+        if(text.length>1600)break;
+        if(!titles.some(title=>scope.contains(title)))continue;
+        const rect=label.getBoundingClientRect();
+        const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+        if(!hit||!(hit===label||label.contains(hit)||hit.contains(label)))break;
+        const target=hit.closest('button,[role="button"],a,[onclick]')||hit;
+        if(!scope.contains(target)||!puzzleAckVisible(target))break;
+        if(!matches.some(item=>item.node===target))
+          matches.push({node:target,label,context:'rumor-result:'+text});
+        break;
+      }
+    }
+    return matches.length===1?matches[0]:null;
+  }
   function puzzleAckDispatchClick(target) {
     const rect = target.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
@@ -1654,14 +1682,14 @@
     if (giftFlowActive && (giftShopOpen() || giftOfferVisible())) return;
 
     try {
-      const match = puzzleAckFindButton();
+      const match = rumorResultContinueButton() || puzzleAckFindButton();
       if (!match) {
         autoAckLastButton = null;
         autoAckLastContext = '';
         return;
       }
       const button = match.node;
-      const context = puzzleAckContext(match.label);
+      const context = match.context || puzzleAckContext(match.label);
       if (button === autoAckLastButton && context === autoAckLastContext)
         return;
       autoAckLastButton = button;
