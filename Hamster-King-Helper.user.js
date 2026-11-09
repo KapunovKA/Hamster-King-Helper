@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.25
+// @version      3.16.26
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -1621,33 +1621,56 @@
     }
     return 'понятно';
   }
+  let rumorResultPendingNode=null;
+  let rumorResultPendingContext='';
+  let rumorResultPendingSince=0;
   function rumorResultContinueButton() {
-    const isTitle=node=>/^(?:вчерашние слухи|слухи собраны)$/.test(puzzleAckText(node));
+    const isTitle=node=>/^(?:вчерашние слухи|слухи собраны|ценные слухи)$/.test(puzzleAckText(node));
     const isPrompt=node=>/^нажми(?:те)?,?\s+чтобы\s+продолжить[.!…]?$/.test(puzzleAckText(node));
+    const isNotice=node=>/^один из секретов сегодняшнего дня[!.…]?$/.test(puzzleAckText(node));
     const nodes=[...document.querySelectorAll('h1,h2,h3,h4,strong,div,span,p,button,[role="button"]')];
     const titles=nodes.filter(node=>isTitle(node)&&puzzleAckVisible(node,true)&&
       ![...node.children].some(isTitle));
     const prompts=nodes.filter(node=>isPrompt(node)&&puzzleAckVisible(node,true)&&
       ![...node.children].some(isPrompt));
+    const notices=nodes.filter(node=>isNotice(node)&&puzzleAckVisible(node,true)&&
+      ![...node.children].some(isNotice));
     const matches=[];
-    for(const label of prompts){
+    for(const label of [...prompts,...notices]){
       let scope=label.parentElement;
       for(let depth=0;scope&&depth<12;depth++,scope=scope.parentElement){
         if(scope===document.body||scope===document.documentElement)break;
         const text=puzzleAckText(scope);
         if(text.length>1600)break;
         if(!titles.some(title=>scope.contains(title)))continue;
+        if(isNotice(label)){
+          if(!titles.some(title=>puzzleAckText(title)==='ценные слухи'&&scope.contains(title)))continue;
+          if(prompts.some(prompt=>scope.contains(prompt)))break;
+        }
         const rect=label.getBoundingClientRect();
         const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
         if(!hit||!(hit===label||label.contains(hit)||hit.contains(label)))break;
         const target=hit.closest('button,[role="button"],a,[onclick]')||hit;
         if(!scope.contains(target)||!puzzleAckVisible(target))break;
         if(!matches.some(item=>item.node===target))
-          matches.push({node:target,label,context:'rumor-result:'+text});
+          matches.push({node:target,label,context:'rumor-result:'+text,needsDelay:isNotice(label)});
         break;
       }
     }
-    return matches.length===1?matches[0]:null;
+    const match=matches.length===1?matches[0]:null;
+    if(!match||!match.needsDelay){
+      rumorResultPendingNode=null;
+      rumorResultPendingContext='';
+      return match;
+    }
+    // Дать окну наград завершить появление перед кликом по содержимому.
+    if(match.node!==rumorResultPendingNode||match.context!==rumorResultPendingContext){
+      rumorResultPendingNode=match.node;
+      rumorResultPendingContext=match.context;
+      rumorResultPendingSince=Date.now();
+      return null;
+    }
+    return Date.now()-rumorResultPendingSince>=1000?match:null;
   }
   function puzzleAckDispatchClick(target) {
     const rect = target.getBoundingClientRect();
