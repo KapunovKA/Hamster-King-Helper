@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.26
+// @version      3.16.27
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -372,6 +372,7 @@
       <label class="setting-row"><input type="checkbox" data-setting="autoGifts"> Автоматически собирать бесплатные подарки</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoPuzzleAction"> 🧩 Пазл: нажимать кнопки действий в карточках (расходует ресурсы)</label>
       <label class="setting-row"><input type="checkbox" data-setting="autoDigSite"> ⛏️ Автонажатие в окне «Место раскопок» (расходует ресурсы)</label>
+      <button id="autoAckReport" class="btn" type="button">🗨 Отчёт закрытия окон</button>
       <div class="small">Галочки «Что показывать» скрывают элементы. Галочки «Автоматизация» управляют сбором, не скрывая кнопки. Настройки сохраняются автоматически.</div>
     </div>
 
@@ -1622,6 +1623,7 @@
     return 'понятно';
   }
   let rumorResultPendingNode=null;
+  let autoAckLastAttempt=null;
   let rumorResultPendingContext='';
   let rumorResultPendingSince=0;
   function rumorResultContinueButton() {
@@ -1698,6 +1700,49 @@
       : autoAckCount ? 'Нажато: ' + autoAckCount
       : 'Включено';
   }
+  function autoAckNodeInfo(node){
+    if(!node)return null;
+    const r=node.getBoundingClientRect(),s=getComputedStyle(node);
+    return {tag:node.tagName,cls:String(node.className?.baseVal||node.className||'').slice(0,180),
+      text:puzzleAckText(node).slice(0,100),visible:puzzleAckVisible(node,true),
+      rect:{x:r.left,y:r.top,w:r.width,h:r.height},
+      style:{display:s.display,visibility:s.visibility,pointerEvents:s.pointerEvents,opacity:s.opacity}};
+  }
+  function autoAckDiagnostic(){
+    const relevant=node=>/^(?:ценные слухи|вчерашние слухи|слухи собраны|понятно|один из секретов сегодняшнего дня[!.…]?|нажми(?:те)?,?\s+чтобы\s+продолжить[.!…]?)$/.test(puzzleAckText(node));
+    const candidates=[...document.querySelectorAll('h1,h2,h3,h4,strong,div,span,p,button,[role="button"]')]
+      .filter(node=>relevant(node)&&![...node.children].some(relevant));
+    return JSON.stringify({version:SCRIPT_VERSION,browser:navigator.userAgent,
+      pageVisibility:document.visibilityState,autoAck:uiSettings.autoAck,
+      inventoryAutoRunning,giftFlowActive,
+      giftBlocks:Boolean(giftFlowActive&&(giftShopOpen()||giftOfferVisible())),
+      clicks:autoAckCount,lastAttempt:autoAckLastAttempt,
+      pending:{node:autoAckNodeInfo(rumorResultPendingNode),
+        contextLength:rumorResultPendingContext.length,
+        waitedMs:rumorResultPendingNode?Date.now()-rumorResultPendingSince:null},
+      nodes:candidates.slice(0,20).map(node=>{
+        const r=node.getBoundingClientRect();
+        const ancestors=[];
+        for(let a=node.parentElement,d=0;a&&d<12;d++,a=a.parentElement){
+          ancestors.push({tag:a.tagName,cls:String(a.className||'').slice(0,120),
+            textLength:puzzleAckText(a).length,
+            hasTitle:[...a.querySelectorAll('h1,h2,h3,h4,strong,div,span,p')].some(el=>
+              /^(?:ценные слухи|вчерашние слухи|слухи собраны)$/.test(puzzleAckText(el))&&puzzleAckVisible(el,true))});
+          if(a===document.body)break;
+        }
+        return {...autoAckNodeInfo(node),
+          hit:autoAckNodeInfo(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)),ancestors};
+      })
+    },null,2);
+  }
+  $('autoAckReport').onclick=()=>{
+    const report=autoAckDiagnostic();
+    if(navigator.clipboard?.writeText)
+      navigator.clipboard.writeText(report).then(()=>{
+        $('autoAckReport').textContent='✓ Отчёт скопирован';
+      }).catch(()=>window.prompt('Отчёт закрытия окон:',report));
+    else window.prompt('Отчёт закрытия окон:',report);
+  };
   function autoAckTick() {
     if (inventoryAutoRunning) return;
     if (!uiSettings.autoAck) return;
@@ -1717,10 +1762,14 @@
         return;
       autoAckLastButton = button;
       autoAckLastContext = context;
+      autoAckLastAttempt={time:new Date().toISOString(),
+        kind:match.context?'rumor-result':'understood',
+        target:autoAckNodeInfo(button)};
       puzzleAckDispatchClick(button);
       autoAckCount++;
       updateAutoAckStatus();
     } catch (error) {
+      if(autoAckLastAttempt)autoAckLastAttempt.error=String(error.message||error);
       $('autoAckStatus').textContent =
         'Не удалось нажать «Понятно»: ' + error.message;
     }
