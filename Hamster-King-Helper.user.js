@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      2026.11.12.1
+// @version      2026.11.12.2
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -233,6 +233,7 @@
     .settings-box .setting-row { font-size:12px; padding:5px 0; }
     .dash-secondary { margin-top:8px; }
     .dash-secondary .dash-details { margin-top:6px; }
+    .build-number { margin-top:8px; text-align:right; font-size:10px; line-height:1.3; color:#8f9bb1; user-select:all; -webkit-user-select:all; }
     @media (max-width:340px) { .dashboard-grid { grid-template-columns:1fr; } }
 
     .mobile-backdrop { display:none; }
@@ -351,7 +352,7 @@
 
   <div id="panel" class="panel hidden">
     <div class="head">
-      <span>🐹 Hamster King Helper v${SCRIPT_VERSION}</span>
+      <span>🐹 Hamster King Helper</span>
       <div class="head-actions">
         <button id="settingsToggle" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
         <button id="close" class="close">−</button>
@@ -433,6 +434,7 @@
         <button id="apply" class="btn">Применить</button>
       </details>
     </div>
+    <div class="build-number" title="Номер сборки">Сборка ${SCRIPT_VERSION}</div>
   </div>
   `;
 
