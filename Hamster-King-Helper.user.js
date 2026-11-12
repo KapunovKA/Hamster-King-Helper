@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      3.16.27
+// @version      2026.11.12.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
