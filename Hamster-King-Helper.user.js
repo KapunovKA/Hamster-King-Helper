@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      2026.11.12.2
+// @version      2026.11.12.3
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -1661,7 +1661,11 @@
         break;
       }
     }
-    const match=matches.length===1?matches[0]:null;
+    // Подзаголовок награды и продолжение могут находиться в разных
+    // вложенных контейнерах одного окна. Продолжение приоритетнее.
+    const continuations=matches.filter(item=>!item.needsDelay);
+    const preferred=continuations.length?continuations:matches;
+    const match=preferred.length===1?preferred[0]:null;
     if(!match||!match.needsDelay){
       rumorResultPendingNode=null;
       rumorResultPendingContext='';
