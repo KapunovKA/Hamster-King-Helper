@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      2026.11.12.3
+// @version      2026.11.13.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -106,12 +106,16 @@
     }
 
     .mini {
+      position: relative;
       background: #202538;
       border: 1px solid #67738a;
       border-radius: 22px;
       padding: 10px 13px;
       box-shadow: 0 3px 14px #0008;
     }
+
+    .mini.rumors-ready { border-color:#39d98a; box-shadow:0 0 0 2px #39d98a66,0 3px 14px #0008; }
+    .mini.rumors-new::after { content:''; position:absolute; top:-2px; right:-2px; width:10px; height:10px; border:2px solid #202538; border-radius:50%; background:#39d98a; pointer-events:none; }
 
     .panel {
       width: min(320px, calc(100vw - 16px));
@@ -452,10 +456,12 @@
     hideQuickActions();
     $('mini').classList.add('hidden');
     $('panel').classList.remove('hidden');
+    updateRumorIndicator();
     if (isIPhone) $('mobileBackdrop').classList.remove('hidden');
   }
 
   function closeHelperPanel() {
+    updateRumorIndicator();
     $('panel').classList.add('hidden');
     $('mini').classList.remove('hidden');
     $('mobileBackdrop').classList.add('hidden');
@@ -1262,6 +1268,24 @@
   const RUMOR_LOCK_KEY = 'hk-rumors-first-source-v1';
   const RUMOR_POLL_MS = 3 * 60 * 1000;
   let rumorLock = null;
+  const RUMOR_SEEN_KEY='hk-rumors-notice-seen-day-v1';
+  let rumorSeenDay='';
+  try { rumorSeenDay=localStorage.getItem(RUMOR_SEEN_KEY)||''; } catch {}
+  function updateRumorIndicator(){
+    const ready=Boolean(rumorLock&&rumorLock.day===rumorDayKey());
+    if(ready&&rumorSeenDay!==rumorLock.day&&
+       !$('panel').classList.contains('hidden')&&document.visibilityState==='visible'){
+      rumorSeenDay=rumorLock.day;
+      try { localStorage.setItem(RUMOR_SEEN_KEY,rumorSeenDay); } catch {}
+    }
+    const unread=ready&&rumorSeenDay!==rumorLock.day;
+    const icon=$('mini');
+    icon.classList.toggle('rumors-ready',ready);
+    icon.classList.toggle('rumors-new',unread);
+    const state=unread?'Новые слухи загружены':ready?'Актуальные слухи загружены':'Ожидаю свежие слухи';
+    icon.title=state+'. Наведите для быстрых действий; нажмите для открытия помощника';
+    icon.setAttribute('aria-label','Hamster King Helper. '+state);
+  }
   let rumorLastPoll = 0;
   const RUMOR_MONTHS = {
     января:1, февраля:2, марта:3, апреля:4, мая:5, июня:6,
@@ -1380,6 +1404,7 @@
       rumorLock = {day:stored.day,source:stored.source};
       rumors = data;
       loadState = 'Слухи: ' + stored.source + ' (сохранённый выбор)';
+      updateRumorIndicator();
       highlight();
     } catch {}
   }
@@ -1390,6 +1415,7 @@
     clearHighlight();
     rumors = data;
     loadState = 'Слухи: ' + source + ', выбраны первыми (до 15:00 МСК)';
+    updateRumorIndicator();
     try {
       localStorage.setItem(RUMOR_LOCK_KEY,JSON.stringify({
         day,source,data:serializeRumors(data)
@@ -1404,6 +1430,7 @@
     if (rumorLock && rumorLock.day !== day) {
       rumorLock = null;
       rumors = emptyRumors();
+      updateRumorIndicator();
       clearHighlight();
       loadState = 'Новый игровой день: ожидаю свежие слухи';
       try { localStorage.removeItem(RUMOR_LOCK_KEY); } catch {}
