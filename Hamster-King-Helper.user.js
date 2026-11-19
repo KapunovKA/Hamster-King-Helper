@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Hamster King Helper Universal
 // @namespace    hamster-king-helper-universal
-// @version      2026.11.13.1
+// @version      2026.11.19.1
 // @description  Слухи, пазл, купоны, красные/зелёные клетки, Enter, Esc и автораскопки
 // @match        https://app.hamsterking.games/*
 // @run-at       document-idle
@@ -227,6 +227,10 @@
     .quick-actions { position:fixed; z-index:4; width:min(245px,calc(100vw - 16px)); max-height:calc(100dvh - 16px); overflow:auto; padding:5px; border:1px solid #52617c; border-radius:14px; background:#202a3b; color:#fff; box-shadow:0 8px 24px #0008; pointer-events:auto; font:13px/1.4 -apple-system,Arial,sans-serif; }
     .quick-actions .auto-ack-toggle { padding:8px; min-height:44px; border-radius:9px; }
     .quick-actions .auto-ack-toggle:hover { background:#2b374c; }
+    .quick-coupons { margin:4px 8px 5px; padding-top:9px; border-top:1px solid #45516a; }
+    .quick-coupons .coupon-bar { font-size:12px; font-weight:600; }
+    .quick-coupons .coupon-codes { font-size:13px; }
+    .quick-coupon-status { margin-top:4px; color:#aeb9ce; font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
     .dash-details { margin-top:9px; border:1px solid #38465f; border-radius:10px; background:#202a3b; padding:8px 10px; }
     .dash-details summary { font-size:12px; font-weight:600; }
     .dash-details .block { margin:6px 0; }
@@ -351,6 +355,13 @@
   <div id="quickActions" class="quick-actions hidden" role="group" aria-label="Быстрые действия">
     <label class="auto-ack-toggle"><input type="checkbox" data-setting="autoAck"><span>Авто «Понятно»</span></label>
     <label class="auto-ack-toggle"><input type="checkbox" data-setting="autoInventoryCases"><span>📦 Автооткрытие</span></label>
+    <div id="quickCouponsBlock" class="quick-coupons">
+      <div class="coupon-bar"><span title="Коды из публикаций Telegram за последние 48 часов">🎟️ Купоны Telegram</span>
+        <button id="quickCouponRefresh" class="coupon-refresh" title="Обновить купоны" aria-label="Обновить купоны">↻</button>
+      </div>
+      <div id="quickCoupons" class="coupon-codes" aria-label="Нажми на купон, чтобы скопировать"></div>
+      <div id="quickCouponStatus" class="quick-coupon-status" role="status" aria-live="polite">Проверяю купоны…</div>
+    </div>
   </div>
   <div id="mobileBackdrop" class="mobile-backdrop hidden" aria-hidden="true"></div>
 
@@ -480,11 +491,16 @@
     clearTimeout(quickHideTimer);
     const menu=$('quickActions');
     menu.classList.remove('hidden');
+    positionQuickActions();
+    $('mini').setAttribute('aria-expanded','true');
+  }
+  function positionQuickActions() {
+    const menu=$('quickActions');
+    if(menu.classList.contains('hidden'))return;
     const icon=$('mini').getBoundingClientRect();
     const box=menu.getBoundingClientRect();
     menu.style.left=Math.max(8,Math.min(icon.right-box.width,innerWidth-box.width-8))+'px';
     menu.style.top=Math.max(8,Math.min(icon.bottom+6,innerHeight-box.height-8))+'px';
-    $('mini').setAttribute('aria-expanded','true');
   }
   function deferQuickHide() {
     clearTimeout(quickHideTimer);
@@ -564,7 +580,7 @@
     diagnostics: [$('section-diagnostics')],
     manual: [$('section-manual')],
     city: [$('section-city')],
-    coupons: [$('section-coupons-card')],
+    coupons: [$('section-coupons-card'),$('quickCouponsBlock')],
     puzzle: [$('puzzle')],
     showGifts: [$('section-gifts')],
     showRumors: [$('section-rumors-card')],
@@ -583,6 +599,7 @@
     root.querySelectorAll('[data-setting]').forEach(input => {
       input.checked = uiSettings[input.dataset.setting];
     });
+    positionQuickActions();
   }
 
   $('settingsToggle').onclick = () => {
@@ -2201,29 +2218,37 @@
   }
 
   function renderCoupons() {
-    const container = $('coupons');
-    container.replaceChildren();
-    $('couponStatus').textContent = couponState.replace(/\s+/g,' ').trim();
-    $('couponRefresh').disabled = loadingCoupons;
+    const state=couponState.replace(/\s+/g,' ').trim();
+    $('couponStatus').textContent = state;
+    $('quickCouponStatus').textContent = couponItems.length&&!loadingCoupons
+      ? 'Нажми на код для копирования' : state;
+    $('quickCouponStatus').title = state;
+    $('couponRefresh').disabled = $('quickCouponRefresh').disabled = loadingCoupons;
+    for(const container of [$('coupons'),$('quickCoupons')]){
+      container.replaceChildren();
 
-    for (const [index, item] of couponItems.entries()) {
-      if (index) container.appendChild(document.createTextNode(', '));
-      const code = document.createElement('button');
-      code.type = 'button';
-      code.className = 'coupon-code';
-      code.textContent = item.code;
-      code.title = 'Скопировать ' + item.code;
-      code.setAttribute('aria-label', 'Скопировать купон ' + item.code);
-      code.onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(item.code);
-          $('couponStatus').textContent = '✓ Скопирован: ' + item.code;
-        } catch {
-          window.prompt('Скопируй купон:', item.code);
-        }
-      };
-      container.appendChild(code);
+      for (const [index, item] of couponItems.entries()) {
+        if (index) container.appendChild(document.createTextNode(', '));
+        const code = document.createElement('button');
+        code.type = 'button';
+        code.className = 'coupon-code';
+        code.textContent = item.code;
+        code.title = 'Скопировать ' + item.code;
+        code.setAttribute('aria-label', 'Скопировать купон ' + item.code);
+        code.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(item.code);
+            $('couponStatus').textContent = '✓ Скопирован: ' + item.code;
+            $('quickCouponStatus').textContent = '✓ Скопирован: ' + item.code;
+            positionQuickActions();
+          } catch {
+            window.prompt('Скопируй купон:', item.code);
+          }
+        };
+        container.appendChild(code);
+      }
     }
+    positionQuickActions();
   }
 
   async function loadCoupons() {
@@ -2274,6 +2299,7 @@
   }
 
   $('couponRefresh').onclick = loadCoupons;
+  $('quickCouponRefresh').onclick = loadCoupons;
 
   const COUPON_CHECK_INTERVAL_MS = 30 * 60 * 1000;
   setInterval(() => {
